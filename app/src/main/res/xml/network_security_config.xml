@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Locks the app down to HTTPS only, everywhere. There is no legitimate
+  reason for this app to ever speak plaintext HTTP, since every call
+  goes to Upstox's official API/WebSocket endpoints.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

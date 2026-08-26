@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.NiftyOptionRadar" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
