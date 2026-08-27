@@ -17,7 +17,11 @@ import com.niftyradar.app.model.RadarSession
  * (WebSocket) gets built on top of it.
  */
 @Composable
-fun RadarSetupScreen(viewModel: RadarSetupViewModel, onBackToAuth: () -> Unit) {
+fun RadarSetupScreen(
+    viewModel: RadarSetupViewModel,
+    onBackToAuth: () -> Unit,
+    onContinueToPhase4: () -> Unit
+) {
     val uiState by viewModel.uiState.collectAsState()
     var expiryDate by remember { mutableStateOf("2026-09-01") }
 
@@ -76,6 +80,12 @@ fun RadarSetupScreen(viewModel: RadarSetupViewModel, onBackToAuth: () -> Unit) {
         HorizontalDivider()
 
         RadarStatusView(uiState)
+
+        if (uiState is RadarSetupUiState.Locked) {
+            Button(onClick = onContinueToPhase4, modifier = Modifier.fillMaxWidth()) {
+                Text("Continue to Phase 4 — Live Market Data Feed →")
+            }
+        }
     }
 }
 

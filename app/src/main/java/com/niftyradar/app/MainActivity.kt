@@ -18,22 +18,25 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.niftyradar.app.ui.AuthUiState
 import com.niftyradar.app.ui.AuthViewModel
+import com.niftyradar.app.ui.Phase4Screen
+import com.niftyradar.app.ui.Phase4ViewModel
 import com.niftyradar.app.ui.RadarSetupScreen
 import com.niftyradar.app.ui.RadarSetupViewModel
 
 /**
- * Phases 1-3 only. Nothing about the WebSocket, storage, or charts lives here
- * yet — those are Phase 4 onward, built and tested one at a time. Screen
- * switching is a plain in-memory enum, not Navigation-Compose: there are only
- * two screens right now and adding a nav-graph dependency for that would be
+ * Phases 1-4. Nothing about local storage or charts lives here yet — those
+ * are Phase 6 onward, built and tested one at a time. Screen switching is a
+ * plain in-memory enum, not Navigation-Compose: there are only a handful of
+ * screens right now and adding a nav-graph dependency for that would be
  * premature.
  */
-private enum class Screen { Auth, RadarSetup }
+private enum class Screen { Auth, RadarSetup, Phase4 }
 
 class MainActivity : ComponentActivity() {
 
     private val authViewModel: AuthViewModel by viewModels()
     private val radarSetupViewModel: RadarSetupViewModel by viewModels()
+    private val phase4ViewModel: Phase4ViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,7 +52,12 @@ class MainActivity : ComponentActivity() {
                         )
                         Screen.RadarSetup -> RadarSetupScreen(
                             viewModel = radarSetupViewModel,
-                            onBackToAuth = { screen = Screen.Auth }
+                            onBackToAuth = { screen = Screen.Auth },
+                            onContinueToPhase4 = { screen = Screen.Phase4 }
+                        )
+                        Screen.Phase4 -> Phase4Screen(
+                            viewModel = phase4ViewModel,
+                            onBack = { screen = Screen.RadarSetup }
                         )
                     }
                 }

@@ -17,9 +17,10 @@ import java.util.concurrent.TimeUnit
  *  - LTP Quotes V3 (Phase 3): one-shot NIFTY 50 spot price to compute ATM at
  *    session start — cheaper than standing up the WebSocket just for this.
  *  - Option Contracts (Phase 2): the strikes/instrument keys for an expiry.
+ *  - Market Data Feed Authorize V3 (Phase 4): one-time wss:// URL for the feed.
  *
  * Endpoints/fields below were verified against the live Upstox developer docs
- * on 2026-08-26; re-check before relying on this in production, per the
+ * on 2026-08-26/27; re-check before relying on this in production, per the
  * project spec's own warning that these can drift.
  */
 class UpstoxApiClient {
@@ -50,6 +51,11 @@ class UpstoxApiClient {
     sealed class ContractsResult {
         data class Success(val contracts: List<OptionContract>) : ContractsResult()
         data class Failure(val message: String, val httpCode: Int? = null) : ContractsResult()
+    }
+
+    sealed class FeedAuthorizeResult {
+        data class Success(val webSocketUrl: String) : FeedAuthorizeResult()
+        data class Failure(val message: String, val httpCode: Int? = null) : FeedAuthorizeResult()
     }
 
     /**
@@ -205,6 +211,53 @@ class UpstoxApiClient {
                 ContractsResult.Failure("Network error: ${io.message ?: "could not reach Upstox"}.")
             } catch (parse: Exception) {
                 ContractsResult.Failure("Could not parse Upstox option contracts: ${parse.message}")
+            }
+        }
+
+    /**
+     * GET /v3/feed/market-data-feed/authorize — returns a one-time-use `wss://`
+     * URL (`data.authorized_redirect_uri`) for opening the actual Market Data
+     * Feed V3 WebSocket (see [com.niftyradar.app.feed.MarketFeedClient]).
+     *
+     * IMPORTANT: Market Data Feed V3 is a gated scope — Upstox requires
+     * "Market Data Feed V3 – Read" to be manually enabled per app (post your
+     * app's Client ID/API Key on community.upstox.com asking for it to be
+     * enabled) before this call will succeed. A 403 here almost always means
+     * that scope isn't enabled yet, not a bug in this code.
+     */
+    suspend fun getMarketDataFeedAuthorizeUrl(accessToken: String): FeedAuthorizeResult =
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url("$BASE_URL_V3/feed/market-data-feed/authorize")
+                .header("Authorization", "Bearer $accessToken")
+                .header("Accept", "application/json")
+                .get()
+                .build()
+
+            try {
+                client.newCall(request).execute().use { response ->
+                    val bodyString = response.body?.string().orEmpty()
+
+                    if (!response.isSuccessful) {
+                        var errorMessage = extractErrorMessage(bodyString)
+                            ?: "Upstox returned HTTP ${response.code}."
+                        if (response.code == 403) {
+                            errorMessage += " If this is a permission error: Market Data Feed V3 " +
+                                "must be manually enabled for your app — post your app's Client " +
+                                "ID on community.upstox.com asking for the 'Market Data Feed V3 " +
+                                "– Read' scope."
+                        }
+                        return@withContext FeedAuthorizeResult.Failure(errorMessage, response.code)
+                    }
+
+                    val json = JSONObject(bodyString)
+                    val data = json.getJSONObject("data")
+                    FeedAuthorizeResult.Success(data.getString("authorized_redirect_uri"))
+                }
+            } catch (io: IOException) {
+                FeedAuthorizeResult.Failure("Network error: ${io.message ?: "could not reach Upstox"}.")
+            } catch (parse: Exception) {
+                FeedAuthorizeResult.Failure("Could not parse Upstox feed-authorize response: ${parse.message}")
             }
         }
 

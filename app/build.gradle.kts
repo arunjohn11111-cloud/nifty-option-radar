@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.protobuf")
 }
 
 android {
@@ -46,6 +47,27 @@ android {
     }
 }
 
+// Phase 4: compiles app/src/main/proto/MarketDataFeed.proto (Upstox's Market
+// Data Feed V3 schema) into standalone Kotlin/Java classes in package
+// com.niftyradar.app.marketdatafeed (see the `option java_*` lines in that
+// file). protoc is downloaded automatically at build time — this only needs
+// normal internet access (available on the GitHub Actions runner), not
+// anything special.
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:4.36.0"
+    }
+    generateProtoTasks {
+        all().forEach { task ->
+            task.builtins {
+                create("java") {
+                    option("lite")
+                }
+            }
+        }
+    }
+}
+
 dependencies {
     // Core / lifecycle
     implementation("androidx.core:core-ktx:1.13.1")
@@ -64,10 +86,16 @@ dependencies {
     // Secure, encrypted local storage for the Upstox access token (Phase 1)
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // Networking (Phase 1 only needs a single GET call; OkHttp is enough for now,
-    // Retrofit can be layered on top from Phase 2 onward if desired)
+    // Networking (Phase 1-3 REST calls + Phase 4's Market Data Feed V3
+    // WebSocket both go through OkHttp — it already includes WebSocket
+    // support, no extra dependency needed for that part)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // Phase 4: decodes Market Data Feed V3's binary Protobuf messages.
+    // "javalite" runtime (not full protobuf-java) — smaller, Android-friendly,
+    // matches the "lite" builtin configured in the protobuf {} block above.
+    implementation("com.google.protobuf:protobuf-javalite:4.36.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
