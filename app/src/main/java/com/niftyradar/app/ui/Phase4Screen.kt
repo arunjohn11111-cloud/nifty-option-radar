@@ -1,8 +1,8 @@
 package com.niftyradar.app.ui
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,6 +33,7 @@ fun Phase4Screen(viewModel: Phase4ViewModel, onBack: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -81,11 +82,8 @@ fun Phase4Screen(viewModel: Phase4ViewModel, onBack: () -> Unit) {
             QuoteRow(label = "NIFTY 50 SPOT", quote = quotes[UpstoxApiClient.NIFTY_50_INSTRUMENT_KEY])
             HorizontalDivider()
             Text("Locked contracts:", style = MaterialTheme.typography.titleSmall)
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                items(session.strikes) { strike ->
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (strike in session.strikes) {
                     val ceKey = session.contracts[RadarSession.contractKey(strike, "CE")]?.instrumentKey
                     val peKey = session.contracts[RadarSession.contractKey(strike, "PE")]?.instrumentKey
                     val marker = if (strike == session.atmStrike) " (ATM)" else ""
