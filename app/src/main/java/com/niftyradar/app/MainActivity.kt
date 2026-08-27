@@ -20,23 +20,24 @@ import com.niftyradar.app.ui.AuthUiState
 import com.niftyradar.app.ui.AuthViewModel
 import com.niftyradar.app.ui.Phase4Screen
 import com.niftyradar.app.ui.Phase4ViewModel
+import com.niftyradar.app.ui.Phase6Screen
+import com.niftyradar.app.ui.Phase6ViewModel
 import com.niftyradar.app.ui.RadarSetupScreen
 import com.niftyradar.app.ui.RadarSetupViewModel
 
 /**
- * Phases 1-4. Nothing about local storage or charts lives here yet — those
- * are Phase 6 onward, built and tested one at a time. Screen switching is a
- * plain in-memory enum, not Navigation-Compose: there are only a handful of
- * screens right now and adding a nav-graph dependency for that would be
- * premature.
+ * Phases 1-6. Screen switching is a plain in-memory enum, not
+ * Navigation-Compose: there are only a handful of screens right now and
+ * adding a nav-graph dependency for that would be premature.
  */
-private enum class Screen { Auth, RadarSetup, Phase4 }
+private enum class Screen { Auth, RadarSetup, Phase4, Phase6 }
 
 class MainActivity : ComponentActivity() {
 
     private val authViewModel: AuthViewModel by viewModels()
     private val radarSetupViewModel: RadarSetupViewModel by viewModels()
     private val phase4ViewModel: Phase4ViewModel by viewModels()
+    private val phase6ViewModel: Phase6ViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,7 +58,12 @@ class MainActivity : ComponentActivity() {
                         )
                         Screen.Phase4 -> Phase4Screen(
                             viewModel = phase4ViewModel,
-                            onBack = { screen = Screen.RadarSetup }
+                            onBack = { screen = Screen.RadarSetup },
+                            onContinueToPhase6 = { screen = Screen.Phase6 }
+                        )
+                        Screen.Phase6 -> Phase6Screen(
+                            viewModel = phase6ViewModel,
+                            onBack = { screen = Screen.Phase4 }
                         )
                     }
                 }

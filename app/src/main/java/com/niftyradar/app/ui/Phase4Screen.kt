@@ -22,7 +22,7 @@ import com.niftyradar.app.network.UpstoxApiClient
  * connects and the ticks really land on disk, before anything is built on top.
  */
 @Composable
-fun Phase4Screen(viewModel: Phase4ViewModel, onBack: () -> Unit) {
+fun Phase4Screen(viewModel: Phase4ViewModel, onBack: () -> Unit, onContinueToPhase6: () -> Unit) {
     val uiState by viewModel.uiState.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
     val quotes by viewModel.quotes.collectAsState()
@@ -98,6 +98,9 @@ fun Phase4Screen(viewModel: Phase4ViewModel, onBack: () -> Unit) {
         }
 
         if (session != null) {
+            Button(onClick = onContinueToPhase6, modifier = Modifier.fillMaxWidth()) {
+                Text("Continue to Phase 6 — Option Chart →")
+            }
             HorizontalDivider()
             QuoteRow(label = "NIFTY 50 SPOT", quote = quotes[UpstoxApiClient.NIFTY_50_INSTRUMENT_KEY])
             HorizontalDivider()
