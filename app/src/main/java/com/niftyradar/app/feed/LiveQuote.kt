@@ -26,3 +26,17 @@ sealed class FeedConnectionState {
     data class Connected(val marketStatusSummary: String) : FeedConnectionState()
     data class Failed(val message: String) : FeedConnectionState()
 }
+
+/**
+ * Phase 5: one individual tick as it arrives, rather than the collapsed
+ * "latest quote per instrument" view [MarketFeedClient.quotes] exposes for
+ * the UI. [MarketFeedClient.tickEvents] emits one of these per instrument
+ * update in every [com.niftyradar.app.marketdatafeed.FeedResponse] so a
+ * collector (Phase4ViewModel, writing to Room) can persist full tick
+ * history instead of only ever seeing the most recent value.
+ */
+data class TickEvent(
+    val instrumentKey: String,
+    val quote: LiveQuote,
+    val receivedAtMillis: Long
+)

@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.protobuf")
+    id("org.jetbrains.kotlin.kapt")
 }
 
 android {
@@ -96,6 +97,13 @@ dependencies {
     // "javalite" runtime (not full protobuf-java) — smaller, Android-friendly,
     // matches the "lite" builtin configured in the protobuf {} block above.
     implementation("com.google.protobuf:protobuf-javalite:4.36.0")
+
+    // Phase 5: on-device storage for live ticks (survives app restarts,
+    // feeds Phase 6+ charts). room-ktx adds the suspend-fun DAO support used
+    // in LiveTickDao/LiveTickStore.
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    kapt("androidx.room:room-compiler:2.6.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

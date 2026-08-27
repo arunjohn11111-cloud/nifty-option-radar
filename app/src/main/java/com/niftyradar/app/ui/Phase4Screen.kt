@@ -14,17 +14,19 @@ import com.niftyradar.app.model.RadarSession
 import com.niftyradar.app.network.UpstoxApiClient
 
 /**
- * PHASE 4 SCREEN ONLY: authorize + connect the Market Data Feed V3 WebSocket
- * and show live LTP/OI/volume ticking in for NIFTY 50 spot + the 22 locked
- * contracts. No charts, no local storage yet — that's Phase 6 onward. This
- * screen exists purely to prove the feed connects and carries the right
- * fields for exactly the locked instruments before anything is built on top.
+ * PHASE 4/5 SCREEN: authorize + connect the Market Data Feed V3 WebSocket and
+ * show live LTP/OI/volume ticking in for NIFTY 50 spot + the 22 locked
+ * contracts (Phase 4), while every tick is also persisted to Room in the
+ * background (Phase 5) — see the "Check stored ticks" button. No charts yet
+ * — that's Phase 6 onward. This screen exists purely to prove the feed
+ * connects and the ticks really land on disk, before anything is built on top.
  */
 @Composable
 fun Phase4Screen(viewModel: Phase4ViewModel, onBack: () -> Unit) {
     val uiState by viewModel.uiState.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
     val quotes by viewModel.quotes.collectAsState()
+    val storedTickSummary by viewModel.storedTickSummary.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.loadLockedSession()
@@ -44,8 +46,9 @@ fun Phase4Screen(viewModel: Phase4ViewModel, onBack: () -> Unit) {
         Text("Phase 4 — Live Market Data Feed (V3)", style = MaterialTheme.typography.titleMedium)
         Text(
             "Connects the Market Data Feed V3 WebSocket and subscribes to NIFTY 50 spot + " +
-                "the 22 locked contracts in 'full' mode (LTP, OI, volume). No charts or local " +
-                "storage yet — this screen only proves live ticks arrive.",
+                "the 22 locked contracts in 'full' mode (LTP, OI, volume), and saves every " +
+                "tick to an on-device database. No charts yet — this screen only proves live " +
+                "ticks arrive and land on disk.",
             style = MaterialTheme.typography.bodyMedium
         )
 
@@ -76,6 +79,23 @@ fun Phase4Screen(viewModel: Phase4ViewModel, onBack: () -> Unit) {
         }
 
         ConnectionStatusCard(uiState, connectionState)
+
+        HorizontalDivider()
+        Text("Phase 5 — local storage (Room)", style = MaterialTheme.typography.titleSmall)
+        Text(
+            "Every tick above is also written to an on-device database as it arrives, " +
+                "independent of this screen. Tap below any time — even right after opening " +
+                "the app, before connecting — to prove it's really on disk, not just in memory.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Button(onClick = { viewModel.refreshStoredTickSummary() }) {
+                Text("Check stored ticks (today)")
+            }
+        }
+        if (storedTickSummary != null) {
+            Text(storedTickSummary!!, style = MaterialTheme.typography.bodyMedium)
+        }
 
         if (session != null) {
             HorizontalDivider()

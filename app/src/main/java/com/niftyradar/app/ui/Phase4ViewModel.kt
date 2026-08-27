@@ -9,6 +9,7 @@ import com.niftyradar.app.feed.MarketFeedClient
 import com.niftyradar.app.model.RadarSession
 import com.niftyradar.app.network.UpstoxApiClient
 import com.niftyradar.app.security.SecureTokenStore
+import com.niftyradar.app.storage.LiveTickStore
 import com.niftyradar.app.storage.RadarSessionStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,10 +20,11 @@ import java.util.Locale
 import java.util.TimeZone
 
 /**
- * Phase 4 only: authorize + connect the Market Data Feed V3 WebSocket for
- * NIFTY 50 spot + the 22 instrument keys locked in Phase 2/3, and show live
- * ticks arriving. No local storage, no charts yet — that's Phase 6 onward
- * (PROJECT_SPEC.md section 20, steps 4-5).
+ * Phase 4: authorize + connect the Market Data Feed V3 WebSocket for NIFTY 50
+ * spot + the 22 instrument keys locked in Phase 2/3, and show live ticks
+ * arriving. Phase 5: every tick is also persisted to Room (see [liveTickStore]
+ * / [refreshStoredTickSummary]) so it survives an app restart. No charts yet
+ * — that's Phase 6 onward (PROJECT_SPEC.md section 20).
  */
 sealed class Phase4UiState {
     data object NoRadarLocked : Phase4UiState()
@@ -37,6 +39,7 @@ class Phase4ViewModel(application: Application) : AndroidViewModel(application) 
     private val sessionStore = RadarSessionStore(application)
     private val apiClient = UpstoxApiClient()
     private val feedClient = MarketFeedClient()
+    private val liveTickStore = LiveTickStore(application)
 
     private val _uiState = MutableStateFlow<Phase4UiState>(Phase4UiState.NoRadarLocked)
     val uiState: StateFlow<Phase4UiState> = _uiState.asStateFlow()
@@ -44,7 +47,21 @@ class Phase4ViewModel(application: Application) : AndroidViewModel(application) 
     val connectionState: StateFlow<FeedConnectionState> = feedClient.connectionState
     val quotes: StateFlow<Map<String, LiveQuote>> = feedClient.quotes
 
+    /** Phase 5: null until [refreshStoredTickSummary] is called — see Phase4Screen's "Check stored ticks" button. */
+    private val _storedTickSummary = MutableStateFlow<String?>(null)
+    val storedTickSummary: StateFlow<String?> = _storedTickSummary.asStateFlow()
+
     private var lockedSession: RadarSession? = null
+
+    init {
+        // Phase 5: persist every tick as it arrives, for as long as this ViewModel is alive —
+        // independent of connect()/disconnect(), so re-subscribing never has to re-wire this.
+        viewModelScope.launch {
+            feedClient.tickEvents.collect { event ->
+                liveTickStore.recordTick(todaySessionDate(), event)
+            }
+        }
+    }
 
     /** IST trading-day key — same convention as RadarSetupViewModel.todaySessionDate(). */
     private fun todaySessionDate(): String {
@@ -94,6 +111,22 @@ class Phase4ViewModel(application: Application) : AndroidViewModel(application) 
 
     fun disconnect() {
         feedClient.disconnect()
+    }
+
+    /**
+     * Phase 5 proof-of-life: read back (from Room, not from the in-memory
+     * [quotes] map) how many ticks are actually on disk for today. Works even
+     * right after a fresh app launch with no connection made yet — that's the
+     * whole point, it proves persistence survived past the process that wrote it.
+     */
+    fun refreshStoredTickSummary() {
+        viewModelScope.launch {
+            val date = todaySessionDate()
+            val tickCount = liveTickStore.countForSession(date)
+            val instrumentCount = liveTickStore.instrumentCountForSession(date)
+            _storedTickSummary.value =
+                "$tickCount tick(s) stored for today across $instrumentCount instrument(s)."
+        }
     }
 
     override fun onCleared() {

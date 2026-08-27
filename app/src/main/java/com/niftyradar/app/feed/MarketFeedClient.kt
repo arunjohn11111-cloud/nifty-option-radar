@@ -4,8 +4,12 @@ import com.niftyradar.app.marketdatafeed.Feed
 import com.niftyradar.app.marketdatafeed.FeedResponse
 import com.niftyradar.app.marketdatafeed.LTPC
 import com.niftyradar.app.marketdatafeed.Type
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -47,6 +51,18 @@ class MarketFeedClient {
 
     private val _quotes = MutableStateFlow<Map<String, LiveQuote>>(emptyMap())
     val quotes: StateFlow<Map<String, LiveQuote>> = _quotes.asStateFlow()
+
+    // Phase 5: every individual tick, for Phase4ViewModel to persist to Room —
+    // separate from [quotes] above, which only ever holds the latest value per
+    // instrument and would lose tick history the moment a newer one arrives.
+    // A dropping buffer is fine here: this is a live radar, not a trade ledger,
+    // so an occasional dropped tick under extreme load beats blocking the
+    // WebSocket's read loop.
+    private val _tickEvents = MutableSharedFlow<TickEvent>(
+        extraBufferCapacity = 256,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val tickEvents: SharedFlow<TickEvent> = _tickEvents.asSharedFlow()
 
     /**
      * @param wssUrl the one-time-use `authorized_redirect_uri` from the V3 authorize REST call.
@@ -121,9 +137,13 @@ class MarketFeedClient {
 
         if (response.feedsCount == 0) return
 
+        val receivedAt = System.currentTimeMillis()
         val updated = _quotes.value.toMutableMap()
         for ((instrumentKey, feed) in response.feedsMap) {
-            extractLiveQuote(feed)?.let { updated[instrumentKey] = it }
+            extractLiveQuote(feed)?.let {
+                updated[instrumentKey] = it
+                _tickEvents.tryEmit(TickEvent(instrumentKey, it, receivedAt))
+            }
         }
         _quotes.value = updated
     }

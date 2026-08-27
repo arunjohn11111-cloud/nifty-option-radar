@@ -165,3 +165,47 @@ response parsing for Get Profile, LTP Quotes V3, and Option Contracts was
 cross-checked against Upstox's real documented response shapes. Actual
 compilation, running, and all further phases' build-and-test cycles happen in
 Android Studio on a machine with normal internet access — see `README.md`.
+
+## Phase 4 addendum (2026-08-27) — scroll bug found and fixed same day
+
+Confirmed working end-to-end on-device on 2026-08-27 with live ticks for
+NIFTY 50 spot + all 22 locked contracts. One bug found and fixed the same
+day: `Phase4Screen`'s original layout used a fixed header (description +
+buttons + connection-status card) above a `weight(1f)` `LazyColumn` for the
+spot row + locked-contracts list. Once "CONNECTED" made the status card
+multi-line (one line per exchange segment), the fixed header grew tall
+enough to squeeze the weighted list toward zero height with nothing left
+scrollable to reach it — the spot row and contracts list were still there,
+just unreachably below the fold. Fixed by making the whole screen one
+`verticalScroll`'d `Column` (matching `RadarSetupScreen`'s pattern) and
+replacing the `LazyColumn` with a plain `Column` — only 11 strikes ever
+render here, so there's no performance reason to keep the lazy version.
+
+## Phase 5 note (2026-08-27)
+
+Adds on-device persistence for every tick Phase 4's WebSocket receives, via
+Room: `LiveTickEntity`/`LiveTickDao`/`NiftyRadarDatabase`/`LiveTickStore`
+under `com.niftyradar.app.storage`. `MarketFeedClient` gained a second
+stream, `tickEvents: SharedFlow<TickEvent>` (one event per instrument per
+incoming `FeedResponse`), separate from the existing `quotes:
+StateFlow<Map<String, LiveQuote>>` — `quotes` only ever holds the latest
+value per instrument and would lose history the moment a newer tick
+overwrote it, so persistence has to hook the per-event stream, not the
+collapsed map. `Phase4ViewModel` collects `tickEvents` once in `init {}`
+(independent of `connect()`/`disconnect()`, so reconnecting never needs to
+re-wire storage) and writes each one to Room tagged with the same IST
+`sessionDate` convention `RadarSession` already uses, so a later phase can
+join ticks back to the day's locked radar.
+
+Used kapt rather than KSP for Room's annotation processor specifically
+because this sandbox cannot compile Kotlin/Gradle to verify a KSP-version
+pairing before shipping it — kapt's version is pinned to the same Kotlin
+Gradle plugin version already declared in the root `build.gradle.kts`, so
+there's one fewer version number to get wrong sight-unseen. Revisit KSP once
+there's a way to actually build-verify a version bump.
+
+Verification for this phase is the "Check stored ticks (today)" button on
+the Phase 4/5 screen: it reads the count back from Room (not from the
+in-memory `quotes` map), so it should show a growing number while connected,
+and — the actual point of this phase — a non-zero number if you force-close
+and reopen the app without reconnecting at all.
