@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
  * Reuses [LiveTickChart] unchanged.
  */
 @Composable
-fun Phase7Screen(viewModel: Phase7ViewModel, onBack: () -> Unit) {
+fun Phase7Screen(viewModel: Phase7ViewModel, onBack: () -> Unit, onContinueToPhase8: () -> Unit) {
     val uiState by viewModel.uiState.collectAsState()
     val ticksByInstrument by viewModel.ticksByInstrument.collectAsState()
 
@@ -64,6 +64,10 @@ fun Phase7Screen(viewModel: Phase7ViewModel, onBack: () -> Unit) {
                         ticks = ticksByInstrument[contract.instrumentKey] ?: emptyList(),
                         modifier = Modifier.fillMaxWidth()
                     )
+                }
+                HorizontalDivider()
+                Button(onClick = onContinueToPhase8, modifier = Modifier.fillMaxWidth()) {
+                    Text("Continue to Phase 8 — NIFTY Spot Chart →")
                 }
             }
         }
