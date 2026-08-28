@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
  * contract. Reuses [LiveTickChart] unchanged.
  */
 @Composable
-fun Phase8Screen(viewModel: Phase8ViewModel, onBack: () -> Unit) {
+fun Phase8Screen(viewModel: Phase8ViewModel, onBack: () -> Unit, onContinueToPhase9: () -> Unit) {
     val ticks by viewModel.ticks.collectAsState()
 
     LaunchedEffect(Unit) {
@@ -47,5 +47,10 @@ fun Phase8Screen(viewModel: Phase8ViewModel, onBack: () -> Unit) {
             }
         }
         LiveTickChart(ticks = ticks, modifier = Modifier.fillMaxWidth())
+
+        HorizontalDivider()
+        Button(onClick = onContinueToPhase9, modifier = Modifier.fillMaxWidth()) {
+            Text("Continue to Phase 9 — Full Radar View →")
+        }
     }
 }
