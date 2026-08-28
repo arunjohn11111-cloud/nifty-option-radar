@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
  * (Phase 7), all 23 charts on one screen. Reuses [LiveTickChart] unchanged.
  */
 @Composable
-fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit) {
+fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPhase10: () -> Unit) {
     val uiState by viewModel.uiState.collectAsState()
     val ticksByInstrument by viewModel.ticksByInstrument.collectAsState()
 
@@ -66,6 +66,11 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit) {
                     )
                 }
             }
+        }
+
+        HorizontalDivider()
+        Button(onClick = onContinueToPhase10, modifier = Modifier.fillMaxWidth()) {
+            Text("Continue to Phase 10 — Session History →")
         }
     }
 }
