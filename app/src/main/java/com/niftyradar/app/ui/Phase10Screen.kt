@@ -14,6 +14,10 @@ import androidx.compose.ui.unit.dp
  * locking (every day is now kept, not just today) and historical review
  * (pick a past locked day and see its 23 charts, same as Phase 9 for today).
  * This is the last of the 11 spec steps.
+ *
+ * TV support: charts render via [ChartGrid] instead of one long vertical
+ * list — a single column on a phone-width screen (unchanged), several
+ * columns side by side on a wide TV screen.
  */
 @Composable
 fun Phase10Screen(viewModel: Phase10ViewModel, onBack: () -> Unit) {
@@ -70,14 +74,12 @@ fun Phase10Screen(viewModel: Phase10ViewModel, onBack: () -> Unit) {
                 TextButton(onClick = { viewModel.clearSelection() }) { Text("← Choose a different date") }
             }
             Text("Session: $selectedDate", style = MaterialTheme.typography.titleSmall)
-            for (item in items) {
-                HorizontalDivider()
-                Text(item.label, style = MaterialTheme.typography.titleSmall)
-                LiveTickChart(
-                    ticks = ticksByInstrument[item.instrumentKey] ?: emptyList(),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
+            ChartGrid(
+                items = items,
+                label = { it.label },
+                instrumentKey = { it.instrumentKey },
+                ticksByInstrument = ticksByInstrument
+            )
         }
     }
 }

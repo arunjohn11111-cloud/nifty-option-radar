@@ -13,6 +13,10 @@ import androidx.compose.ui.unit.dp
  * PHASE 7 SCREEN: PROJECT_SPEC.md section 20 step 8 — the same idea as
  * Phase 6, just for all 22 locked contracts instead of only the ATM CE one.
  * Reuses [LiveTickChart] unchanged.
+ *
+ * TV support: charts render via [ChartGrid] instead of one long vertical
+ * list — a single column on a phone-width screen (unchanged), several
+ * columns side by side on a wide TV screen.
  */
 @Composable
 fun Phase7Screen(viewModel: Phase7ViewModel, onBack: () -> Unit, onContinueToPhase8: () -> Unit) {
@@ -57,14 +61,12 @@ fun Phase7Screen(viewModel: Phase7ViewModel, onBack: () -> Unit, onContinueToPha
                         Text("Refresh all charts")
                     }
                 }
-                for (contract in state.contracts) {
-                    HorizontalDivider()
-                    Text(contract.label, style = MaterialTheme.typography.titleSmall)
-                    LiveTickChart(
-                        ticks = ticksByInstrument[contract.instrumentKey] ?: emptyList(),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
+                ChartGrid(
+                    items = state.contracts,
+                    label = { it.label },
+                    instrumentKey = { it.instrumentKey },
+                    ticksByInstrument = ticksByInstrument
+                )
                 HorizontalDivider()
                 Button(onClick = onContinueToPhase8, modifier = Modifier.fillMaxWidth()) {
                     Text("Continue to Phase 8 — NIFTY Spot Chart →")

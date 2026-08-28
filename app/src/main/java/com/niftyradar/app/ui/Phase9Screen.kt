@@ -13,6 +13,11 @@ import androidx.compose.ui.unit.dp
  * PHASE 9 SCREEN: PROJECT_SPEC.md section 20 step 10 — the final combined
  * radar view. NIFTY 50 spot (Phase 8) plus all 22 locked option contracts
  * (Phase 7), all 23 charts on one screen. Reuses [LiveTickChart] unchanged.
+ *
+ * TV support: charts render via [ChartGrid] instead of one long vertical
+ * list — a single column on a phone-width screen (unchanged), several
+ * columns side by side on a wide TV screen, so the whole radar is visible
+ * with much less scrolling.
  */
 @Composable
 fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPhase10: () -> Unit) {
@@ -57,14 +62,12 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
                         Text("Refresh all charts")
                     }
                 }
-                for (item in state.items) {
-                    HorizontalDivider()
-                    Text(item.label, style = MaterialTheme.typography.titleSmall)
-                    LiveTickChart(
-                        ticks = ticksByInstrument[item.instrumentKey] ?: emptyList(),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
+                ChartGrid(
+                    items = state.items,
+                    label = { it.label },
+                    instrumentKey = { it.instrumentKey },
+                    ticksByInstrument = ticksByInstrument
+                )
             }
         }
 
