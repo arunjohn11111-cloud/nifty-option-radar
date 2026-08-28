@@ -22,15 +22,17 @@ import com.niftyradar.app.ui.Phase4Screen
 import com.niftyradar.app.ui.Phase4ViewModel
 import com.niftyradar.app.ui.Phase6Screen
 import com.niftyradar.app.ui.Phase6ViewModel
+import com.niftyradar.app.ui.Phase7Screen
+import com.niftyradar.app.ui.Phase7ViewModel
 import com.niftyradar.app.ui.RadarSetupScreen
 import com.niftyradar.app.ui.RadarSetupViewModel
 
 /**
- * Phases 1-6. Screen switching is a plain in-memory enum, not
+ * Phases 1-7. Screen switching is a plain in-memory enum, not
  * Navigation-Compose: there are only a handful of screens right now and
  * adding a nav-graph dependency for that would be premature.
  */
-private enum class Screen { Auth, RadarSetup, Phase4, Phase6 }
+private enum class Screen { Auth, RadarSetup, Phase4, Phase6, Phase7 }
 
 class MainActivity : ComponentActivity() {
 
@@ -38,6 +40,7 @@ class MainActivity : ComponentActivity() {
     private val radarSetupViewModel: RadarSetupViewModel by viewModels()
     private val phase4ViewModel: Phase4ViewModel by viewModels()
     private val phase6ViewModel: Phase6ViewModel by viewModels()
+    private val phase7ViewModel: Phase7ViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,7 +66,12 @@ class MainActivity : ComponentActivity() {
                         )
                         Screen.Phase6 -> Phase6Screen(
                             viewModel = phase6ViewModel,
-                            onBack = { screen = Screen.Phase4 }
+                            onBack = { screen = Screen.Phase4 },
+                            onContinueToPhase7 = { screen = Screen.Phase7 }
+                        )
+                        Screen.Phase7 -> Phase7Screen(
+                            viewModel = phase7ViewModel,
+                            onBack = { screen = Screen.Phase6 }
                         )
                     }
                 }

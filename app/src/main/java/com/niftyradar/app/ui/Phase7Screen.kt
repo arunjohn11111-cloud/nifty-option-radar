@@ -10,16 +10,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * PHASE 6 SCREEN: PROJECT_SPEC.md section 20 step 7 — "one working live
- * option chart". Shows the ATM call contract's ticks stored today (Phase 5's
- * Room database) as a simple line chart. Only one contract on purpose —
- * Phase 7 expands this same pattern to all 22 locked contracts once this one
- * is proven to work.
+ * PHASE 7 SCREEN: PROJECT_SPEC.md section 20 step 8 — the same idea as
+ * Phase 6, just for all 22 locked contracts instead of only the ATM CE one.
+ * Reuses [LiveTickChart] unchanged.
  */
 @Composable
-fun Phase6Screen(viewModel: Phase6ViewModel, onBack: () -> Unit, onContinueToPhase7: () -> Unit) {
+fun Phase7Screen(viewModel: Phase7ViewModel, onBack: () -> Unit) {
     val uiState by viewModel.uiState.collectAsState()
-    val ticks by viewModel.ticks.collectAsState()
+    val ticksByInstrument by viewModel.ticksByInstrument.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.load()
@@ -36,16 +34,16 @@ fun Phase6Screen(viewModel: Phase6ViewModel, onBack: () -> Unit, onContinueToPha
             TextButton(onClick = onBack) { Text("← Back") }
         }
 
-        Text("Phase 6 — One Live Option Chart", style = MaterialTheme.typography.titleMedium)
+        Text("Phase 7 — All 22 Option Charts", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Reads today's stored ticks for the ATM call contract back out of Room (Phase 5) " +
-                "and draws them as a simple line. Proves \"stored ticks → chart\" works before " +
-                "Phase 7 repeats this for all 22 contracts.",
+            "Same idea as Phase 6, repeated for every locked contract (11 strikes × CE/PE) " +
+                "instead of just the ATM call. No new chart code — this reuses the exact same " +
+                "chart, just 22 times.",
             style = MaterialTheme.typography.bodyMedium
         )
 
         when (val state = uiState) {
-            is Phase6UiState.NoRadarLocked -> {
+            is Phase7UiState.NoRadarLocked -> {
                 Card {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("No radar locked for today yet.", style = MaterialTheme.typography.titleMedium)
@@ -53,17 +51,19 @@ fun Phase6Screen(viewModel: Phase6ViewModel, onBack: () -> Unit, onContinueToPha
                     }
                 }
             }
-            is Phase6UiState.Ready -> {
-                Text("ATM CE — strike ${state.atmStrike}", style = MaterialTheme.typography.titleSmall)
+            is Phase7UiState.Ready -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Button(onClick = { viewModel.refreshChart() }) {
-                        Text("Refresh chart (${ticks.size} tick(s) loaded)")
+                    Button(onClick = { viewModel.refreshAll() }) {
+                        Text("Refresh all charts")
                     }
                 }
-                LiveTickChart(ticks = ticks, modifier = Modifier.fillMaxWidth())
-                HorizontalDivider()
-                Button(onClick = onContinueToPhase7, modifier = Modifier.fillMaxWidth()) {
-                    Text("Continue to Phase 7 — All 22 Charts →")
+                for (contract in state.contracts) {
+                    HorizontalDivider()
+                    Text(contract.label, style = MaterialTheme.typography.titleSmall)
+                    LiveTickChart(
+                        ticks = ticksByInstrument[contract.instrumentKey] ?: emptyList(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
