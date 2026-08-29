@@ -17,7 +17,9 @@ import androidx.compose.ui.unit.dp
  *
  * TV support: charts render via [ChartGrid] instead of one long vertical
  * list — a single column on a phone-width screen (unchanged), several
- * columns side by side on a wide TV screen.
+ * columns side by side on a wide TV screen. Also adds a
+ * [ChartDisplayModeToggle] (Both/Price/OI) — no auto-refresh here, unlike
+ * Phase 7/9, since a locked past date's ticks never change.
  */
 @Composable
 fun Phase10Screen(viewModel: Phase10ViewModel, onBack: () -> Unit) {
@@ -25,6 +27,7 @@ fun Phase10Screen(viewModel: Phase10ViewModel, onBack: () -> Unit) {
     val selectedDate by viewModel.selectedDate.collectAsState()
     val items by viewModel.items.collectAsState()
     val ticksByInstrument by viewModel.ticksByInstrument.collectAsState()
+    var displayMode by remember { mutableStateOf(ChartDisplayMode.Both) }
 
     LaunchedEffect(Unit) {
         viewModel.loadDates()
@@ -74,11 +77,13 @@ fun Phase10Screen(viewModel: Phase10ViewModel, onBack: () -> Unit) {
                 TextButton(onClick = { viewModel.clearSelection() }) { Text("← Choose a different date") }
             }
             Text("Session: $selectedDate", style = MaterialTheme.typography.titleSmall)
+            ChartDisplayModeToggle(current = displayMode, onSelect = { displayMode = it })
             ChartGrid(
                 items = items,
                 label = { it.label },
                 instrumentKey = { it.instrumentKey },
-                ticksByInstrument = ticksByInstrument
+                ticksByInstrument = ticksByInstrument,
+                displayMode = displayMode
             )
         }
     }

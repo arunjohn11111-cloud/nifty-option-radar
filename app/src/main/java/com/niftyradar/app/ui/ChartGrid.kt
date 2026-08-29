@@ -1,8 +1,10 @@
 package com.niftyradar.app.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -27,13 +29,18 @@ import com.niftyradar.app.storage.LiveTickEntity
  * Column (which is how every phase screen here is built). Chunking [items]
  * into plain Rows avoids that entirely, at the cost of the grid not being
  * lazy — fine at 23 items.
+ *
+ * [displayMode] is forwarded to every [LiveTickChart] unchanged — one
+ * screen-level toggle switches the whole grid between price/OI/both at
+ * once, rather than each card having its own.
  */
 @Composable
 fun <T> ChartGrid(
     items: List<T>,
     label: (T) -> String,
     instrumentKey: (T) -> String,
-    ticksByInstrument: Map<String, List<LiveTickEntity>>
+    ticksByInstrument: Map<String, List<LiveTickEntity>>,
+    displayMode: ChartDisplayMode = ChartDisplayMode.Both
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val columnCount = (maxWidth / 220.dp).toInt().coerceIn(1, 4)
@@ -51,7 +58,8 @@ fun <T> ChartGrid(
                                 Text(label(entry), style = MaterialTheme.typography.titleSmall)
                                 LiveTickChart(
                                     ticks = ticksByInstrument[instrumentKey(entry)] ?: emptyList(),
-                                    modifier = Modifier.fillMaxWidth()
+                                    modifier = Modifier.fillMaxWidth(),
+                                    displayMode = displayMode
                                 )
                             }
                         }
@@ -64,6 +72,30 @@ fun <T> ChartGrid(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * The "Both / Price / OI" row shown above a [ChartGrid] on Phase 7, 9, and
+ * 10 — one shared toggle switches every chart on the screen together.
+ * [current] and [onSelect] are hoisted so each screen keeps its own
+ * `remember { mutableStateOf(...) }` state (this composable holds none).
+ */
+@Composable
+fun ChartDisplayModeToggle(current: ChartDisplayMode, onSelect: (ChartDisplayMode) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        val options = listOf(
+            ChartDisplayMode.Both to "Both",
+            ChartDisplayMode.PriceOnly to "Price",
+            ChartDisplayMode.OiOnly to "OI"
+        )
+        for ((mode, label) in options) {
+            if (mode == current) {
+                Button(onClick = { onSelect(mode) }) { Text(label) }
+            } else {
+                OutlinedButton(onClick = { onSelect(mode) }) { Text(label) }
             }
         }
     }

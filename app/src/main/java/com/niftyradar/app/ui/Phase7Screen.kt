@@ -8,6 +8,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+
+/** How often the auto-refresh loop below re-reads stored ticks while this screen is open. */
+private const val AUTO_REFRESH_INTERVAL_MS = 5_000L
 
 /**
  * PHASE 7 SCREEN: PROJECT_SPEC.md section 20 step 8 — the same idea as
@@ -17,14 +21,26 @@ import androidx.compose.ui.unit.dp
  * TV support: charts render via [ChartGrid] instead of one long vertical
  * list — a single column on a phone-width screen (unchanged), several
  * columns side by side on a wide TV screen.
+ *
+ * Also adds a [ChartDisplayModeToggle] (Both/Price/OI, applied to every
+ * chart at once) and an auto-refresh loop — every [AUTO_REFRESH_INTERVAL_MS]
+ * this screen re-reads whatever's newest in storage on its own.
  */
 @Composable
 fun Phase7Screen(viewModel: Phase7ViewModel, onBack: () -> Unit, onContinueToPhase8: () -> Unit) {
     val uiState by viewModel.uiState.collectAsState()
     val ticksByInstrument by viewModel.ticksByInstrument.collectAsState()
+    var displayMode by remember { mutableStateOf(ChartDisplayMode.Both) }
 
     LaunchedEffect(Unit) {
         viewModel.load()
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(AUTO_REFRESH_INTERVAL_MS)
+            viewModel.refreshAll()
+        }
     }
 
     Column(
@@ -58,14 +74,20 @@ fun Phase7Screen(viewModel: Phase7ViewModel, onBack: () -> Unit, onContinueToPha
             is Phase7UiState.Ready -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Button(onClick = { viewModel.refreshAll() }) {
-                        Text("Refresh all charts")
+                        Text("Refresh now")
                     }
                 }
+                Text(
+                    "Auto-refreshing every ${AUTO_REFRESH_INTERVAL_MS / 1000}s while this screen is open.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                ChartDisplayModeToggle(current = displayMode, onSelect = { displayMode = it })
                 ChartGrid(
                     items = state.contracts,
                     label = { it.label },
                     instrumentKey = { it.instrumentKey },
-                    ticksByInstrument = ticksByInstrument
+                    ticksByInstrument = ticksByInstrument,
+                    displayMode = displayMode
                 )
                 HorizontalDivider()
                 Button(onClick = onContinueToPhase8, modifier = Modifier.fillMaxWidth()) {
