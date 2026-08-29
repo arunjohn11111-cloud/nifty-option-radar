@@ -9,6 +9,13 @@ package com.niftyradar.app.feed
  * NIFTY 50 index feed (it only ever carries an `IndexFullFeed`, which has no
  * such fields) and populated for option contracts (`MarketFullFeed`), per
  * PROJECT_SPEC.md section 8 — "full" mode is what carries `oi`/`vtt`.
+ *
+ * [totalBuyQuantity]/[totalSellQuantity] are the exchange's own aggregate
+ * pending buy/sell order quantity for the instrument at that moment (`tbq`/
+ * `tsq` on `MarketFullFeed`) — a direct buy-vs-sell pressure reading, unlike
+ * OI which only reflects settled positions. Same NIFTY-50-spot exception as
+ * OI: only `MarketFullFeed` (option contracts) carries these, so they're
+ * null for the index feed.
  */
 data class LiveQuote(
     val ltp: Double,
@@ -16,7 +23,9 @@ data class LiveQuote(
     val lastTradeTimeMillis: Long,
     val openInterest: Double? = null,
     val volumeTradedToday: Long? = null,
-    val impliedVolatility: Double? = null
+    val impliedVolatility: Double? = null,
+    val totalBuyQuantity: Double? = null,
+    val totalSellQuantity: Double? = null
 )
 
 /** Connection lifecycle for [MarketFeedClient], surfaced to Phase4ViewModel/Phase4Screen. */

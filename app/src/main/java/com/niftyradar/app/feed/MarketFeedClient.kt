@@ -161,7 +161,9 @@ class MarketFeedClient {
                     it.ltpc.toLiveQuote(
                         openInterest = it.oi,
                         volumeTradedToday = it.vtt,
-                        impliedVolatility = it.iv
+                        impliedVolatility = it.iv,
+                        totalBuyQuantity = it.tbq,
+                        totalSellQuantity = it.tsq
                     )
                 }
                 full.hasIndexFF() -> full.indexFF.ltpc.toLiveQuote()
@@ -178,14 +180,18 @@ class MarketFeedClient {
     private fun LTPC.toLiveQuote(
         openInterest: Double? = null,
         volumeTradedToday: Long? = null,
-        impliedVolatility: Double? = null
+        impliedVolatility: Double? = null,
+        totalBuyQuantity: Double? = null,
+        totalSellQuantity: Double? = null
     ) = LiveQuote(
         ltp = ltp,
         closePrice = cp,
         lastTradeTimeMillis = ltt,
         openInterest = openInterest,
         volumeTradedToday = volumeTradedToday,
-        impliedVolatility = impliedVolatility
+        impliedVolatility = impliedVolatility,
+        totalBuyQuantity = totalBuyQuantity,
+        totalSellQuantity = totalSellQuantity
     )
 
     fun disconnect() {

@@ -28,5 +28,7 @@ data class LiveTickEntity(
     val lastTradeTimeMillis: Long,
     val openInterest: Double?,
     val volumeTradedToday: Long?,
-    val impliedVolatility: Double?
+    val impliedVolatility: Double?,
+    val totalBuyQuantity: Double? = null,
+    val totalSellQuantity: Double? = null
 )

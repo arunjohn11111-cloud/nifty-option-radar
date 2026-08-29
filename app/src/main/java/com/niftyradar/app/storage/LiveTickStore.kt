@@ -25,7 +25,9 @@ class LiveTickStore(context: Context) {
                 lastTradeTimeMillis = event.quote.lastTradeTimeMillis,
                 openInterest = event.quote.openInterest,
                 volumeTradedToday = event.quote.volumeTradedToday,
-                impliedVolatility = event.quote.impliedVolatility
+                impliedVolatility = event.quote.impliedVolatility,
+                totalBuyQuantity = event.quote.totalBuyQuantity,
+                totalSellQuantity = event.quote.totalSellQuantity
             )
         )
     }
