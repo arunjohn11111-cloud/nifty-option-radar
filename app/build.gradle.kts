@@ -18,6 +18,32 @@ android {
         versionName = "0.1.0-phase1"
     }
 
+    // WHY a checked-in debug keystore: without this, the Android Gradle Plugin generates a
+    // fresh random ~/.android/debug.keystore on whatever machine is building. Every GitHub
+    // Actions run is a brand-new throwaway VM, so every CI build was signed with a DIFFERENT
+    // key — and Android refuses to install an APK over an existing app signed by a different
+    // key ("App not installed"). That forced an uninstall before every single update, which
+    // wiped the saved Upstox token, the locked radar session and all stored tick history each
+    // time (and cost a real day's data at least once). Pinning one keystore in the repo makes
+    // every build share a signature, so updates install straight over the previous version and
+    // keep their data — on the phone and on the TV alike.
+    //
+    // Safe to commit: this is a DEBUG-only key that never signs a Play Store release, and it
+    // uses the standard, publicly-documented debug credentials ("android"/"androiddebugkey")
+    // that every Android debug build in the world already uses — it is not a secret. A real
+    // release key, if this app ever needs one, must NOT be handled this way.
+    //
+    // Nifty Quick Trade pins the same key. That is deliberate and harmless: the two apps have
+    // different applicationIds, so they never collide — it just means one less thing to track.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = rootProject.file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
