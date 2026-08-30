@@ -8,12 +8,14 @@ import com.niftyradar.app.domain.DashboardResult
 import com.niftyradar.app.domain.IndicatorEngine
 import com.niftyradar.app.domain.PivotLevels
 import com.niftyradar.app.domain.PivotPoints
+import com.niftyradar.app.model.Candle
 import com.niftyradar.app.model.RadarSession
 import com.niftyradar.app.network.UpstoxApiClient
 import com.niftyradar.app.security.SecureTokenStore
 import com.niftyradar.app.storage.LiveTickEntity
 import com.niftyradar.app.storage.LiveTickStore
 import com.niftyradar.app.storage.RadarSessionStore
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -67,12 +69,18 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
     private val _dailyLevels = MutableStateFlow<DailyLevelsUiState>(DailyLevelsUiState.Loading)
     val dailyLevels: StateFlow<DailyLevelsUiState> = _dailyLevels.asStateFlow()
 
-    // Step 2: the 6-indicator dashboard (4 of 6 so far — see IndicatorEngine's doc comment).
+    // Step 2: the 6-indicator dashboard (5 of 6 so far — see IndicatorEngine's doc comment).
     // Needs both the locked session (ATM strike/contracts) and the pivot levels above, so it's
     // recomputed every 5s refresh alongside ticksByInstrument rather than fetched separately.
     private var currentSession: RadarSession? = null
     private val _dashboard = MutableStateFlow<DashboardResult?>(null)
     val dashboard: StateFlow<DashboardResult?> = _dashboard.asStateFlow()
+
+    // Trend (9/21 EMA)'s own 15-min candle series (historical + today's intraday, merged) —
+    // refreshed on its own 60s loop, not the 5s tick loop: 15-min candles don't change often
+    // enough to justify re-fetching from Upstox every 5 seconds.
+    private var trendCandles: List<Candle> = emptyList()
+    private var trendCandleLoopStarted = false
 
     /** IST trading-day key — same convention as the other ViewModels. */
     private fun todaySessionDate(): String {
@@ -116,6 +124,62 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.value = Phase9UiState.Ready(items)
         refreshAll(items)
         loadDailyLevels()
+        startTrendCandleRefreshLoop()
+    }
+
+    /**
+     * Starts (once — guarded by [trendCandleLoopStarted], since [load] can be called again if
+     * this screen is re-entered later in the same app session) a loop that fetches
+     * [loadTrendCandles] immediately, then every 60 seconds afterward.
+     */
+    private fun startTrendCandleRefreshLoop() {
+        if (trendCandleLoopStarted) return
+        trendCandleLoopStarted = true
+        viewModelScope.launch {
+            while (true) {
+                loadTrendCandles()
+                delay(60_000L)
+            }
+        }
+    }
+
+    /**
+     * NIFTY 50 spot's 15-min candles for Trend (9/21 EMA): a historical window (10 calendar
+     * days, comfortably covering several trading days of warm-up history even around a
+     * holiday) plus today's still-forming candles from the separate intraday endpoint (see
+     * [UpstoxApiClient.getIntradayCandles]'s doc comment for why these two calls are needed
+     * instead of one). The two series are merged and de-duplicated by timestamp, keeping the
+     * intraday copy of any candle that happens to appear in both (the freshest one) — Upstox's
+     * historical endpoint is not expected to include today's data while the market is open,
+     * but this stays correct if it ever does, e.g. after today's own candle has closed.
+     */
+    private suspend fun loadTrendCandles() {
+        val token = tokenStore.getAccessToken() ?: return
+
+        val historicalResult = apiClient.getHistoricalCandles(
+            accessToken = token,
+            instrumentKey = UpstoxApiClient.NIFTY_50_INSTRUMENT_KEY,
+            unit = "minutes",
+            interval = "15",
+            toDate = dateDaysBeforeToday(1),
+            fromDate = dateDaysBeforeToday(10)
+        )
+        val intradayResult = apiClient.getIntradayCandles(
+            accessToken = token,
+            instrumentKey = UpstoxApiClient.NIFTY_50_INSTRUMENT_KEY,
+            unit = "minutes",
+            interval = "15"
+        )
+
+        val historicalCandles =
+            (historicalResult as? UpstoxApiClient.CandlesResult.Success)?.candles ?: emptyList()
+        val intradayCandles =
+            (intradayResult as? UpstoxApiClient.CandlesResult.Success)?.candles ?: emptyList()
+
+        trendCandles = (historicalCandles + intradayCandles)
+            .associateBy { it.timestampIso }
+            .values
+            .sortedBy { it.timestampIso }
     }
 
     /**
@@ -191,7 +255,7 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * Recomputes the 4-of-6 dashboard from whatever's currently available. Silently leaves
+     * Recomputes the 5-of-6 dashboard from whatever's currently available. Silently leaves
      * [dashboard] at its previous value (usually null, early in the day) until both the
      * locked session and the pivot levels are ready — the next 5s auto-refresh tick retries
      * on its own, no separate wiring needed once [loadDailyLevels] resolves.
@@ -200,6 +264,6 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
         val session = currentSession ?: return
         val pivots = (_dailyLevels.value as? DailyLevelsUiState.Ready)?.pivots ?: return
         val spotTicks = ticksByInstrument[UpstoxApiClient.NIFTY_50_INSTRUMENT_KEY] ?: emptyList()
-        _dashboard.value = IndicatorEngine.evaluate(session, ticksByInstrument, spotTicks, pivots)
+        _dashboard.value = IndicatorEngine.evaluate(session, ticksByInstrument, spotTicks, pivots, trendCandles)
     }
 }

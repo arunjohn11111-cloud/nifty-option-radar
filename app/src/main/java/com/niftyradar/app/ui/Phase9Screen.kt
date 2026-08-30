@@ -117,17 +117,17 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
 /**
  * Step 2's dashboard card: every indicator gets a colored arrow AND a short text reason
  * together (the user was explicit that both are wanted, not either/or), plus an aggregate
- * "X of N bullish/bearish/neutral" line. Currently 4 of the eventual 6 indicators — see
- * [com.niftyradar.app.domain.IndicatorEngine]'s doc comment for why Trend isn't here yet.
- * The "great indication" notification (5-6/6 agreeing) is intentionally NOT built here — it
- * needs its own Android notification-channel + vibration + overlay-flash wiring, which is
- * its own increment, not part of proving the indicator math itself.
+ * "X of N bullish/bearish/neutral" line. Currently 5 of the eventual 6 indicators — see
+ * [com.niftyradar.app.domain.IndicatorEngine]'s doc comment (only ATR is left out, since it
+ * never votes). The "great indication" notification (5-6/6 agreeing) is intentionally NOT
+ * built here — it needs its own Android notification-channel + vibration + overlay-flash
+ * wiring, which is its own increment, not part of proving the indicator math itself.
  */
 @Composable
 private fun DashboardCard(dashboard: DashboardResult?) {
     Card {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("6-Indicator Dashboard (4 of 6 so far)", style = MaterialTheme.typography.titleSmall)
+            Text("6-Indicator Dashboard (5 of 6 so far)", style = MaterialTheme.typography.titleSmall)
             if (dashboard == null) {
                 Text(
                     "Waiting for pivot levels + live ticks...",

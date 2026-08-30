@@ -319,6 +319,53 @@ class UpstoxApiClient {
     }
 
     /**
+     * GET /v3/historical-candle/intraday/{instrument_key}/{unit}/{interval}
+     *
+     * Same [unit]/[interval] rules as [getHistoricalCandles], but for TODAY's still-forming
+     * candles — Upstox's historical endpoint never includes an in-progress candle, so Trend
+     * (9/21 EMA), which needs to react to what's happening RIGHT NOW rather than only up to
+     * yesterday, combines this with a [getHistoricalCandles] call for the warm-up history
+     * before today (see [com.niftyradar.app.ui.Phase9ViewModel.loadTrendCandles]).
+     */
+    suspend fun getIntradayCandles(
+        accessToken: String,
+        instrumentKey: String,
+        unit: String,
+        interval: String
+    ): CandlesResult = withContext(Dispatchers.IO) {
+        val url = "$BASE_URL_V3/historical-candle/intraday".toHttpUrl().newBuilder()
+            .addPathSegment(instrumentKey)
+            .addPathSegment(unit)
+            .addPathSegment(interval)
+            .build()
+
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer $accessToken")
+            .header("Accept", "application/json")
+            .get()
+            .build()
+
+        try {
+            client.newCall(request).execute().use { response ->
+                val bodyString = response.body?.string().orEmpty()
+
+                if (!response.isSuccessful) {
+                    val errorMessage = extractErrorMessage(bodyString)
+                        ?: "Upstox returned HTTP ${response.code}."
+                    return@withContext CandlesResult.Failure(errorMessage, response.code)
+                }
+
+                CandlesResult.Success(parseCandles(bodyString))
+            }
+        } catch (io: IOException) {
+            CandlesResult.Failure("Network error: ${io.message ?: "could not reach Upstox"}.")
+        } catch (parse: Exception) {
+            CandlesResult.Failure("Could not parse Upstox intraday candles: ${parse.message}")
+        }
+    }
+
+    /**
      * Each candle arrives as a JSON array: [timestamp, open, high, low, close, volume,
      * open_interest] (the last field is 0 for an index like NIFTY 50, which has no OI).
      * Upstox's own return order for the outer `candles` array is undocumented and has been

@@ -1,14 +1,14 @@
 package com.niftyradar.app.domain
 
+import com.niftyradar.app.model.Candle
 import com.niftyradar.app.model.RadarSession
 import com.niftyradar.app.storage.LiveTickEntity
 
 /**
  * Combines the individual indicator calculators into the dashboard's ordered list of votes,
- * per PROJECT_SPEC.md's 6-indicator design. Currently computes 4 of the eventual 6 — Trend
- * (9/21 EMA) needs 15-min candle history this app doesn't fetch yet, so it's left out until
- * that's built; ATR is never in this list at all, since it doesn't vote (see
- * [IndicatorSignal]'s doc comment) — it's shown separately for Target/SL sizing.
+ * per PROJECT_SPEC.md's 6-indicator design. Currently computes 5 of the eventual 6 — ATR is
+ * never in this list at all, since it doesn't vote (see [IndicatorSignal]'s doc comment) —
+ * it's shown separately for Target/SL sizing.
  *
  * ATM CE/PE combining, used by both OI+Price Quadrant and Order-Flow Imbalance: each
  * indicator's own-price read on the PE side gets INVERTED before counting it as a
@@ -33,7 +33,8 @@ object IndicatorEngine {
         session: RadarSession,
         ticksByInstrument: Map<String, List<LiveTickEntity>>,
         spotTicks: List<LiveTickEntity>,
-        pivots: PivotLevels
+        pivots: PivotLevels,
+        trendCandles: List<Candle>
     ): DashboardResult {
         val atmStrike = session.atmStrike
         val ceKey = session.contracts[RadarSession.contractKey(atmStrike, "CE")]?.instrumentKey
@@ -45,6 +46,7 @@ object IndicatorEngine {
             oiPriceQuadrantSignal(ceTicks, peTicks),
             orderFlowSignal(ceTicks, peTicks),
             pivotPointSignal(spotTicks, pivots),
+            trendSignal(trendCandles),
             gammaExposureSignal(session, ticksByInstrument, spotTicks)
         )
 
@@ -112,6 +114,40 @@ object IndicatorEngine {
                 "Spot %.2f is between S1 %.2f and R1 %.2f — no breakout yet.".format(spot, pivots.s1, pivots.r1)
         }
         return IndicatorSignal("Pivot Points", direction, reason)
+    }
+
+    /**
+     * [candles] are NIFTY 50's own 15-min candles, historical+intraday already merged by the
+     * caller (see [com.niftyradar.app.ui.Phase9ViewModel.loadTrendCandles]). EMA9 above EMA21
+     * = uptrend (bullish), below = downtrend (bearish) — the standard retail reading of a
+     * 9/21 EMA crossover. Notes "(just crossed)" when the previous candle had the opposite
+     * relationship, since a fresh cross is a more notable event than one that's held for a
+     * while.
+     */
+    private fun trendSignal(candles: List<Candle>): IndicatorSignal {
+        val ema9Series = ExponentialMovingAverage.series(candles, 9)
+        val ema21Series = ExponentialMovingAverage.series(candles, 21)
+        if (ema9Series.isEmpty() || ema21Series.isEmpty()) {
+            return IndicatorSignal("Trend (9/21 EMA)", SignalDirection.NEUTRAL, "Not enough 15-min candles yet.")
+        }
+
+        val ema9 = ema9Series.last()
+        val ema21 = ema21Series.last()
+        val direction = when {
+            ema9 > ema21 -> SignalDirection.BULLISH
+            ema9 < ema21 -> SignalDirection.BEARISH
+            else -> SignalDirection.NEUTRAL
+        }
+
+        val justCrossed = if (ema9Series.size >= 2 && ema21Series.size >= 2) {
+            val wasAbove = ema9Series[ema9Series.size - 2] > ema21Series[ema21Series.size - 2]
+            val isAbove = ema9 > ema21
+            wasAbove != isAbove
+        } else {
+            false
+        }
+        val reason = "EMA9 %.2f vs EMA21 %.2f%s".format(ema9, ema21, if (justCrossed) " (just crossed)" else "")
+        return IndicatorSignal("Trend (9/21 EMA)", direction, reason)
     }
 
     private fun gammaExposureSignal(
