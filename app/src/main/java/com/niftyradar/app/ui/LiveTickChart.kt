@@ -31,6 +31,7 @@ private val PRICE_COLOR = Color(0xFF6750A4)
 private val OI_COLOR = Color(0xFFE8871E)
 private val BUY_COLOR = Color(0xFF2E7D32)
 private val SELL_COLOR = Color(0xFFC62828)
+private val GREEKS_COLOR = Color(0xFF00695C)
 
 /** How wide a time window one buy/sell bar pair represents — matches the screens' 5s
  *  auto-refresh cadence, so "one bar" reads as "one refresh's worth of order flow". */
@@ -97,6 +98,14 @@ private fun formatQuantityShort(value: Double): String {
  * height is scaled against the largest quantity seen anywhere in the visible strip. Because
  * these bars sit on the same real-time x-axis as the price/OI lines above, a buy/sell bar
  * lines up under whatever point on the OI line happened at the same moment.
+ *
+ * Greeks readout: a single numeric row (Delta/Theta/Gamma/Vega/Rho), not a chart — these are
+ * server-computed by Upstox on every tick (same NIFTY-50-spot exception as OI: null for the
+ * index), and for a first pass the point is just to prove real values are flowing end-to-end
+ * from the feed through Room to the screen before anything (the Gamma Exposure condition,
+ * Target/SL sizing) is built on top of them. Shows the most recent tick that actually carries
+ * Greeks, so it keeps displaying the last known values between ticks rather than flickering to
+ * blank.
  */
 @Composable
 fun LiveTickChart(
@@ -157,6 +166,10 @@ fun LiveTickChart(
         1.0
     }
 
+    // Most recent tick that actually carries Greeks (null for NIFTY 50 spot, always) — see the
+    // "Greeks readout" doc note above.
+    val latestGreeks = ticks.lastOrNull { it.delta != null }
+
     Column(modifier = modifier) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             if (showPrice) {
@@ -209,6 +222,17 @@ fun LiveTickChart(
             if (showOi) {
                 Text("OI Low: %.0f".format(minOi), style = MaterialTheme.typography.bodySmall, color = OI_COLOR)
             }
+        }
+
+        if (latestGreeks != null) {
+            Text(
+                "Δ %.3f  Θ %.2f  Γ %.4f  V %.2f  ρ %.2f".format(
+                    latestGreeks.delta, latestGreeks.theta, latestGreeks.gamma,
+                    latestGreeks.vega, latestGreeks.rho
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = GREEKS_COLOR
+            )
         }
 
         if (hasFlow) {

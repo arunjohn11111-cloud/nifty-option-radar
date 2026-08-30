@@ -163,7 +163,12 @@ class MarketFeedClient {
                         volumeTradedToday = it.vtt,
                         impliedVolatility = it.iv,
                         totalBuyQuantity = it.tbq,
-                        totalSellQuantity = it.tsq
+                        totalSellQuantity = it.tsq,
+                        delta = it.optionGreeks.delta,
+                        theta = it.optionGreeks.theta,
+                        gamma = it.optionGreeks.gamma,
+                        vega = it.optionGreeks.vega,
+                        rho = it.optionGreeks.rho
                     )
                 }
                 full.hasIndexFF() -> full.indexFF.ltpc.toLiveQuote()
@@ -171,7 +176,16 @@ class MarketFeedClient {
             }
         }
         feed.hasFirstLevelWithGreeks() -> feed.firstLevelWithGreeks.let {
-            it.ltpc.toLiveQuote(openInterest = it.oi, volumeTradedToday = it.vtt, impliedVolatility = it.iv)
+            it.ltpc.toLiveQuote(
+                openInterest = it.oi,
+                volumeTradedToday = it.vtt,
+                impliedVolatility = it.iv,
+                delta = it.optionGreeks.delta,
+                theta = it.optionGreeks.theta,
+                gamma = it.optionGreeks.gamma,
+                vega = it.optionGreeks.vega,
+                rho = it.optionGreeks.rho
+            )
         }
         feed.hasLtpc() -> feed.ltpc.toLiveQuote()
         else -> null
@@ -182,7 +196,12 @@ class MarketFeedClient {
         volumeTradedToday: Long? = null,
         impliedVolatility: Double? = null,
         totalBuyQuantity: Double? = null,
-        totalSellQuantity: Double? = null
+        totalSellQuantity: Double? = null,
+        delta: Double? = null,
+        theta: Double? = null,
+        gamma: Double? = null,
+        vega: Double? = null,
+        rho: Double? = null
     ) = LiveQuote(
         ltp = ltp,
         closePrice = cp,
@@ -191,7 +210,12 @@ class MarketFeedClient {
         volumeTradedToday = volumeTradedToday,
         impliedVolatility = impliedVolatility,
         totalBuyQuantity = totalBuyQuantity,
-        totalSellQuantity = totalSellQuantity
+        totalSellQuantity = totalSellQuantity,
+        delta = delta,
+        theta = theta,
+        gamma = gamma,
+        vega = vega,
+        rho = rho
     )
 
     fun disconnect() {

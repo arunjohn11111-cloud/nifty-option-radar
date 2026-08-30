@@ -20,8 +20,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * history (every locked day's ticks are kept, not just today's), so wiping
  * the database on every schema change would silently delete real history
  * the moment this update installs over an older build.
+ *
+ * version 3 (option Greeks): added [LiveTickEntity.delta]/[theta]/[gamma]/
+ * [vega]/[rho] — Upstox's own server-computed Greeks, read straight off the
+ * feed (see [com.niftyradar.app.feed.MarketFeedClient]), no Black-Scholes
+ * math in this app. Same real-[Migration] discipline as version 2, for the
+ * same reason.
  */
-@Database(entities = [LiveTickEntity::class], version = 2, exportSchema = false)
+@Database(entities = [LiveTickEntity::class], version = 3, exportSchema = false)
 abstract class NiftyRadarDatabase : RoomDatabase() {
 
     abstract fun liveTickDao(): LiveTickDao
@@ -36,6 +42,16 @@ abstract class NiftyRadarDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE live_ticks ADD COLUMN delta REAL")
+                db.execSQL("ALTER TABLE live_ticks ADD COLUMN theta REAL")
+                db.execSQL("ALTER TABLE live_ticks ADD COLUMN gamma REAL")
+                db.execSQL("ALTER TABLE live_ticks ADD COLUMN vega REAL")
+                db.execSQL("ALTER TABLE live_ticks ADD COLUMN rho REAL")
+            }
+        }
+
         fun getInstance(context: Context): NiftyRadarDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -43,7 +59,7 @@ abstract class NiftyRadarDatabase : RoomDatabase() {
                     NiftyRadarDatabase::class.java,
                     "nifty_radar.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build().also { instance = it }
             }
     }

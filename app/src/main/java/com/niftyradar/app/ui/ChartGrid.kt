@@ -39,7 +39,7 @@ private const val MAX_TV_COLUMNS = 8
  *  estimate, not a hard layout constraint, so a slightly-off guess just means the grid is a
  *  little short of or past a perfect edge-to-edge fit (or, for the one NIFTY 50 spot card that
  *  has no buy/sell strip, a little extra blank space), never a crash. */
-private val CARD_CHROME_HEIGHT = 160.dp
+private val CARD_CHROME_HEIGHT = 180.dp // bumped 160->180dp for the added Greeks readout row
 
 /** Smallest and largest a chart canvas is allowed to shrink/grow to on the TV "fit everything"
  *  layout. Below the minimum a chart stops being readable; above the maximum (the same 160dp

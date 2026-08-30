@@ -16,6 +16,12 @@ package com.niftyradar.app.feed
  * OI which only reflects settled positions. Same NIFTY-50-spot exception as
  * OI: only `MarketFullFeed` (option contracts) carries these, so they're
  * null for the index feed.
+ *
+ * [delta]/[theta]/[gamma]/[vega]/[rho] are Upstox's own server-side-computed
+ * option Greeks (`OptionGreeks` on `MarketFullFeed`/`FirstLevelWithGreeks`) —
+ * this app never runs a Black-Scholes calculation itself, it only reads what
+ * Upstox already sends on every tick. Same NIFTY-50-spot exception as OI/IV:
+ * an index has no Greeks, so these are null for the spot feed.
  */
 data class LiveQuote(
     val ltp: Double,
@@ -25,7 +31,12 @@ data class LiveQuote(
     val volumeTradedToday: Long? = null,
     val impliedVolatility: Double? = null,
     val totalBuyQuantity: Double? = null,
-    val totalSellQuantity: Double? = null
+    val totalSellQuantity: Double? = null,
+    val delta: Double? = null,
+    val theta: Double? = null,
+    val gamma: Double? = null,
+    val vega: Double? = null,
+    val rho: Double? = null
 )
 
 /** Connection lifecycle for [MarketFeedClient], surfaced to Phase4ViewModel/Phase4Screen. */

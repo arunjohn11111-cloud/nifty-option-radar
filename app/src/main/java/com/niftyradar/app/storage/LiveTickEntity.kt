@@ -30,5 +30,10 @@ data class LiveTickEntity(
     val volumeTradedToday: Long?,
     val impliedVolatility: Double?,
     val totalBuyQuantity: Double? = null,
-    val totalSellQuantity: Double? = null
+    val totalSellQuantity: Double? = null,
+    val delta: Double? = null,
+    val theta: Double? = null,
+    val gamma: Double? = null,
+    val vega: Double? = null,
+    val rho: Double? = null
 )

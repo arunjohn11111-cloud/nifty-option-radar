@@ -27,7 +27,12 @@ class LiveTickStore(context: Context) {
                 volumeTradedToday = event.quote.volumeTradedToday,
                 impliedVolatility = event.quote.impliedVolatility,
                 totalBuyQuantity = event.quote.totalBuyQuantity,
-                totalSellQuantity = event.quote.totalSellQuantity
+                totalSellQuantity = event.quote.totalSellQuantity,
+                delta = event.quote.delta,
+                theta = event.quote.theta,
+                gamma = event.quote.gamma,
+                vega = event.quote.vega,
+                rho = event.quote.rho
             )
         )
     }
