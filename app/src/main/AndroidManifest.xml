@@ -1,11 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Needed to call the Upstox REST API and (from Phase 4 onward) the
-         Market Data Feed V3 WebSocket. No other permissions are requested:
-         this is a private, personal-use, read-only monitoring tool. -->
+    <!-- Needed to call the Upstox REST API and the Market Data Feed V3 WebSocket. This app
+         started as a private, personal-use, read-only monitoring tool; the "Quick Trade"
+         overlay below is its first feature that isn't purely read-only, though Phase 1 of it
+         is still preview-only (see QuickTradeOverlayService) — no real order is placed yet. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Quick Trade overlay (Phase 1, preview-only — see QuickTradeOverlayService): a floating
+         bubble drawn on top of other apps needs SYSTEM_ALERT_WINDOW (the user must grant this
+         manually via a Settings screen Android itself shows — there's no in-app prompt for it).
+         FOREGROUND_SERVICE(_SPECIAL_USE) is required for the always-on Service that keeps the
+         bubble alive; POST_NOTIFICATIONS is for that service's required persistent notification
+         (without it on Android 13+, the service still runs, it just won't show the notification). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- 6-Indicator Dashboard "great indication" alert (see DashboardNotifier): the
+         notification above uses POST_NOTIFICATIONS already declared for Quick Trade; this
+         adds the vibration half of that same alert. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- TV support (Mi TV / Android TV / Google TV): both features are
          "not required" so this stays installable on a normal phone exactly
@@ -38,6 +55,17 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Quick Trade overlay (Phase 1, preview-only — see QuickTradeOverlayService). Not
+             exported: only this app itself ever starts it (from a button in MainActivity). -->
+        <service
+            android:name=".quicktrade.QuickTradeOverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Floating quick-trade order-entry overlay, started explicitly by the user for their own manual trading." />
+        </service>
 
     </application>
 

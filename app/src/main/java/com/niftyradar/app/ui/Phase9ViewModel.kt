@@ -11,6 +11,7 @@ import com.niftyradar.app.domain.PivotPoints
 import com.niftyradar.app.model.Candle
 import com.niftyradar.app.model.RadarSession
 import com.niftyradar.app.network.UpstoxApiClient
+import com.niftyradar.app.notification.DashboardNotifier
 import com.niftyradar.app.security.SecureTokenStore
 import com.niftyradar.app.storage.LiveTickEntity
 import com.niftyradar.app.storage.LiveTickStore
@@ -59,6 +60,7 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
     private val liveTickStore = LiveTickStore(application)
     private val tokenStore = SecureTokenStore(application)
     private val apiClient = UpstoxApiClient()
+    private val dashboardNotifier = DashboardNotifier(application)
 
     private val _uiState = MutableStateFlow<Phase9UiState>(Phase9UiState.NoRadarLocked)
     val uiState: StateFlow<Phase9UiState> = _uiState.asStateFlow()
@@ -264,6 +266,8 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
         val session = currentSession ?: return
         val pivots = (_dailyLevels.value as? DailyLevelsUiState.Ready)?.pivots ?: return
         val spotTicks = ticksByInstrument[UpstoxApiClient.NIFTY_50_INSTRUMENT_KEY] ?: emptyList()
-        _dashboard.value = IndicatorEngine.evaluate(session, ticksByInstrument, spotTicks, pivots, trendCandles)
+        val result = IndicatorEngine.evaluate(session, ticksByInstrument, spotTicks, pivots, trendCandles)
+        _dashboard.value = result
+        dashboardNotifier.onDashboardUpdated(result)
     }
 }
