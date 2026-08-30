@@ -7,8 +7,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.niftyradar.app.domain.DashboardResult
+import com.niftyradar.app.domain.IndicatorSignal
+import com.niftyradar.app.domain.SignalDirection
 import kotlinx.coroutines.delay
+
+private val BULLISH_COLOR = Color(0xFF2E7D32)
+private val BEARISH_COLOR = Color(0xFFC62828)
+private val NEUTRAL_COLOR = Color(0xFF757575)
 
 /** How often the auto-refresh loop below re-reads stored ticks while this screen is open. */
 private const val AUTO_REFRESH_INTERVAL_MS = 5_000L
@@ -34,6 +42,7 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
     val uiState by viewModel.uiState.collectAsState()
     val ticksByInstrument by viewModel.ticksByInstrument.collectAsState()
     val dailyLevels by viewModel.dailyLevels.collectAsState()
+    val dashboard by viewModel.dashboard.collectAsState()
     var displayMode by remember { mutableStateOf(ChartDisplayMode.Both) }
 
     LaunchedEffect(Unit) {
@@ -86,6 +95,7 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
                     style = MaterialTheme.typography.bodySmall
                 )
                 DailyLevelsCard(dailyLevels)
+                DashboardCard(dashboard)
                 ChartDisplayModeToggle(current = displayMode, onSelect = { displayMode = it })
                 ChartGrid(
                     items = state.items,
@@ -101,6 +111,62 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
         Button(onClick = onContinueToPhase10, modifier = Modifier.fillMaxWidth()) {
             Text("Continue to Phase 10 — Session History →")
         }
+    }
+}
+
+/**
+ * Step 2's dashboard card: every indicator gets a colored arrow AND a short text reason
+ * together (the user was explicit that both are wanted, not either/or), plus an aggregate
+ * "X of N bullish/bearish/neutral" line. Currently 4 of the eventual 6 indicators — see
+ * [com.niftyradar.app.domain.IndicatorEngine]'s doc comment for why Trend isn't here yet.
+ * The "great indication" notification (5-6/6 agreeing) is intentionally NOT built here — it
+ * needs its own Android notification-channel + vibration + overlay-flash wiring, which is
+ * its own increment, not part of proving the indicator math itself.
+ */
+@Composable
+private fun DashboardCard(dashboard: DashboardResult?) {
+    Card {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("6-Indicator Dashboard (4 of 6 so far)", style = MaterialTheme.typography.titleSmall)
+            if (dashboard == null) {
+                Text(
+                    "Waiting for pivot levels + live ticks...",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            } else {
+                for (signal in dashboard.signals) {
+                    IndicatorRow(signal)
+                }
+                HorizontalDivider()
+                Text(
+                    "${dashboard.bullishCount} of ${dashboard.total} Bullish, " +
+                        "${dashboard.bearishCount} of ${dashboard.total} Bearish, " +
+                        "${dashboard.neutralCount} of ${dashboard.total} Neutral",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun IndicatorRow(signal: IndicatorSignal) {
+    val (arrow, color) = when (signal.direction) {
+        SignalDirection.BULLISH -> "⬆️" to BULLISH_COLOR
+        SignalDirection.BEARISH -> "⬇️" to BEARISH_COLOR
+        SignalDirection.NEUTRAL -> "➡️" to NEUTRAL_COLOR
+    }
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(arrow, color = color, style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(signal.name, style = MaterialTheme.typography.bodyMedium, color = color)
+        }
+        Text(
+            signal.reason,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(start = 28.dp)
+        )
     }
 }
 

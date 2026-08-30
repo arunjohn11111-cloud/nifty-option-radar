@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.niftyradar.app.domain.AverageTrueRange
+import com.niftyradar.app.domain.DashboardResult
+import com.niftyradar.app.domain.IndicatorEngine
 import com.niftyradar.app.domain.PivotLevels
 import com.niftyradar.app.domain.PivotPoints
 import com.niftyradar.app.model.RadarSession
@@ -65,6 +67,13 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
     private val _dailyLevels = MutableStateFlow<DailyLevelsUiState>(DailyLevelsUiState.Loading)
     val dailyLevels: StateFlow<DailyLevelsUiState> = _dailyLevels.asStateFlow()
 
+    // Step 2: the 6-indicator dashboard (4 of 6 so far — see IndicatorEngine's doc comment).
+    // Needs both the locked session (ATM strike/contracts) and the pivot levels above, so it's
+    // recomputed every 5s refresh alongside ticksByInstrument rather than fetched separately.
+    private var currentSession: RadarSession? = null
+    private val _dashboard = MutableStateFlow<DashboardResult?>(null)
+    val dashboard: StateFlow<DashboardResult?> = _dashboard.asStateFlow()
+
     /** IST trading-day key — same convention as the other ViewModels. */
     private fun todaySessionDate(): String {
         val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
@@ -103,6 +112,7 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
 
+        currentSession = session
         _uiState.value = Phase9UiState.Ready(items)
         refreshAll(items)
         loadDailyLevels()
@@ -176,6 +186,20 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
                 result[item.instrumentKey] = liveTickStore.ticksFor(date, item.instrumentKey)
             }
             _ticksByInstrument.value = result
+            updateDashboard(result)
         }
+    }
+
+    /**
+     * Recomputes the 4-of-6 dashboard from whatever's currently available. Silently leaves
+     * [dashboard] at its previous value (usually null, early in the day) until both the
+     * locked session and the pivot levels are ready — the next 5s auto-refresh tick retries
+     * on its own, no separate wiring needed once [loadDailyLevels] resolves.
+     */
+    private fun updateDashboard(ticksByInstrument: Map<String, List<LiveTickEntity>>) {
+        val session = currentSession ?: return
+        val pivots = (_dailyLevels.value as? DailyLevelsUiState.Ready)?.pivots ?: return
+        val spotTicks = ticksByInstrument[UpstoxApiClient.NIFTY_50_INSTRUMENT_KEY] ?: emptyList()
+        _dashboard.value = IndicatorEngine.evaluate(session, ticksByInstrument, spotTicks, pivots)
     }
 }
