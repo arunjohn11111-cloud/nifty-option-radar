@@ -33,6 +33,7 @@ private const val AUTO_REFRESH_INTERVAL_MS = 5_000L
 fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPhase10: () -> Unit) {
     val uiState by viewModel.uiState.collectAsState()
     val ticksByInstrument by viewModel.ticksByInstrument.collectAsState()
+    val dailyLevels by viewModel.dailyLevels.collectAsState()
     var displayMode by remember { mutableStateOf(ChartDisplayMode.Both) }
 
     LaunchedEffect(Unit) {
@@ -84,6 +85,7 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
                     "Auto-refreshing every ${AUTO_REFRESH_INTERVAL_MS / 1000}s while this screen is open.",
                     style = MaterialTheme.typography.bodySmall
                 )
+                DailyLevelsCard(dailyLevels)
                 ChartDisplayModeToggle(current = displayMode, onSelect = { displayMode = it })
                 ChartGrid(
                     items = state.items,
@@ -98,6 +100,50 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
         HorizontalDivider()
         Button(onClick = onContinueToPhase10, modifier = Modifier.fillMaxWidth()) {
             Text("Continue to Phase 10 — Session History →")
+        }
+    }
+}
+
+/**
+ * Step 1b's "prove it visually" checkpoint (same idea as the per-contract Greeks readout
+ * row from Step 1a): NIFTY 50 spot's previous-day classic pivot levels and daily-candle
+ * ATR(14), fetched once via [Phase9ViewModel.dailyLevels] — see that ViewModel's doc comment.
+ * Just a numeric readout for now; the 6-indicator dashboard (Step 2) is what actually turns
+ * these into a Pivot Points arrow/vote and an ATR-sized Target/SL suggestion.
+ */
+@Composable
+private fun DailyLevelsCard(state: DailyLevelsUiState) {
+    Card {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Pivot Points & ATR (NIFTY 50, previous day)", style = MaterialTheme.typography.titleSmall)
+            when (state) {
+                is DailyLevelsUiState.Loading -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Fetching historical candles...", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                is DailyLevelsUiState.Failed -> {
+                    Text("Could not load: ${state.message}", style = MaterialTheme.typography.bodySmall)
+                }
+                is DailyLevelsUiState.Ready -> {
+                    val p = state.pivots
+                    Text(
+                        "Pivot: %.2f   R1: %.2f   S1: %.2f".format(p.pivot, p.r1, p.s1),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        "R2: %.2f   S2: %.2f".format(p.r2, p.s2),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        if (state.atr14 != null) "ATR(14): %.2f pts".format(state.atr14)
+                        else "ATR(14): not enough daily candles yet",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
         }
     }
 }

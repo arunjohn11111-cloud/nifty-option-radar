@@ -1,5 +1,6 @@
 package com.niftyradar.app.network
 
+import com.niftyradar.app.model.Candle
 import com.niftyradar.app.model.OptionContract
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -17,10 +18,9 @@ import java.util.concurrent.TimeUnit
  *  - LTP Quotes V3 (Phase 3): one-shot NIFTY 50 spot price to compute ATM at
  *    session start — cheaper than standing up the WebSocket just for this.
  *  - Option Contracts (Phase 2): the strikes/instrument keys for an expiry.
- *  - Market Data Feed Authorize V3 (Phase 4): one-time wss:// URL for the feed.
  *
  * Endpoints/fields below were verified against the live Upstox developer docs
- * on 2026-08-26/27; re-check before relying on this in production, per the
+ * on 2026-08-26; re-check before relying on this in production, per the
  * project spec's own warning that these can drift.
  */
 class UpstoxApiClient {
@@ -56,6 +56,11 @@ class UpstoxApiClient {
     sealed class FeedAuthorizeResult {
         data class Success(val webSocketUrl: String) : FeedAuthorizeResult()
         data class Failure(val message: String, val httpCode: Int? = null) : FeedAuthorizeResult()
+    }
+
+    sealed class CandlesResult {
+        data class Success(val candles: List<Candle>) : CandlesResult()
+        data class Failure(val message: String, val httpCode: Int? = null) : CandlesResult()
     }
 
     /**
@@ -260,6 +265,86 @@ class UpstoxApiClient {
                 FeedAuthorizeResult.Failure("Could not parse Upstox feed-authorize response: ${parse.message}")
             }
         }
+
+    /**
+     * GET /v3/historical-candle/{instrument_key}/{unit}/{interval}/{to_date}/{from_date}
+     *
+     * [unit]/[interval] follow Upstox's V3 allowed combinations (verified against the live
+     * docs on 2026-08-30, per this file's standing "docs can drift" warning): "days"/"1",
+     * "weeks"/"1", "months"/"1" or "minutes" with 1/3/5/10/15/30/60, or "hours" with 1/2/4.
+     * [toDate]/[fromDate] are "yyyy-MM-dd". This endpoint only ever returns COMPLETED
+     * candles — never an in-progress "today" candle — which is exactly what pivot points
+     * (previous day's H/L/C) and ATR (a clean closed-candle series) both need.
+     */
+    suspend fun getHistoricalCandles(
+        accessToken: String,
+        instrumentKey: String,
+        unit: String,
+        interval: String,
+        toDate: String,
+        fromDate: String
+    ): CandlesResult = withContext(Dispatchers.IO) {
+        val url = "$BASE_URL_V3/historical-candle".toHttpUrl().newBuilder()
+            .addPathSegment(instrumentKey)
+            .addPathSegment(unit)
+            .addPathSegment(interval)
+            .addPathSegment(toDate)
+            .addPathSegment(fromDate)
+            .build()
+
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer $accessToken")
+            .header("Accept", "application/json")
+            .get()
+            .build()
+
+        try {
+            client.newCall(request).execute().use { response ->
+                val bodyString = response.body?.string().orEmpty()
+
+                if (!response.isSuccessful) {
+                    val errorMessage = extractErrorMessage(bodyString)
+                        ?: "Upstox returned HTTP ${response.code}."
+                    return@withContext CandlesResult.Failure(errorMessage, response.code)
+                }
+
+                CandlesResult.Success(parseCandles(bodyString))
+            }
+        } catch (io: IOException) {
+            CandlesResult.Failure("Network error: ${io.message ?: "could not reach Upstox"}.")
+        } catch (parse: Exception) {
+            CandlesResult.Failure("Could not parse Upstox historical candles: ${parse.message}")
+        }
+    }
+
+    /**
+     * Each candle arrives as a JSON array: [timestamp, open, high, low, close, volume,
+     * open_interest] (the last field is 0 for an index like NIFTY 50, which has no OI).
+     * Upstox's own return order for the outer `candles` array is undocumented and has been
+     * seen to vary, so this always re-sorts oldest-first by the ISO timestamp string itself
+     * rather than trusting it — safe because Upstox always uses the same fixed "+05:30" IST
+     * offset, so a plain string sort is already a correct chronological sort.
+     */
+    private fun parseCandles(bodyString: String): List<Candle> {
+        val json = JSONObject(bodyString)
+        val data = json.getJSONObject("data")
+        val candlesArr = data.getJSONArray("candles")
+        val candles = mutableListOf<Candle>()
+        for (i in 0 until candlesArr.length()) {
+            val c = candlesArr.getJSONArray(i)
+            candles += Candle(
+                timestampIso = c.getString(0),
+                open = c.getDouble(1),
+                high = c.getDouble(2),
+                low = c.getDouble(3),
+                close = c.getDouble(4),
+                volume = c.optLong(5, 0L),
+                openInterest = if (c.length() > 6) c.optDouble(6, 0.0) else 0.0
+            )
+        }
+        return candles.sortedBy { it.timestampIso }
+    }
 
     private fun extractErrorMessage(bodyString: String): String? {
         return try {
