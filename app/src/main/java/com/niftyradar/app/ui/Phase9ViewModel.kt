@@ -6,12 +6,15 @@ import androidx.lifecycle.viewModelScope
 import com.niftyradar.app.domain.AverageTrueRange
 import com.niftyradar.app.domain.DashboardResult
 import com.niftyradar.app.domain.IndicatorEngine
+import com.niftyradar.app.domain.PanicAlert
+import com.niftyradar.app.domain.PanicAlertResult
 import com.niftyradar.app.domain.PivotLevels
 import com.niftyradar.app.domain.PivotPoints
 import com.niftyradar.app.model.Candle
 import com.niftyradar.app.model.RadarSession
 import com.niftyradar.app.network.UpstoxApiClient
 import com.niftyradar.app.notification.DashboardNotifier
+import com.niftyradar.app.notification.PanicAlertNotifier
 import com.niftyradar.app.security.SecureTokenStore
 import com.niftyradar.app.storage.LiveTickEntity
 import com.niftyradar.app.storage.LiveTickStore
@@ -61,6 +64,7 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
     private val tokenStore = SecureTokenStore(application)
     private val apiClient = UpstoxApiClient()
     private val dashboardNotifier = DashboardNotifier(application)
+    private val panicAlertNotifier = PanicAlertNotifier(application)
 
     private val _uiState = MutableStateFlow<Phase9UiState>(Phase9UiState.NoRadarLocked)
     val uiState: StateFlow<Phase9UiState> = _uiState.asStateFlow()
@@ -83,6 +87,11 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
     // enough to justify re-fetching from Upstox every 5 seconds.
     private var trendCandles: List<Candle> = emptyList()
     private var trendCandleLoopStarted = false
+
+    // Market-wide panic alert (NIFTY spot alone, independent of the dashboard above) — see
+    // PanicAlert's doc comment for why this is separate from the 6-indicator dashboard.
+    private val _panicAlert = MutableStateFlow<PanicAlertResult?>(null)
+    val panicAlert: StateFlow<PanicAlertResult?> = _panicAlert.asStateFlow()
 
     /** IST trading-day key — same convention as the other ViewModels. */
     private fun todaySessionDate(): String {
@@ -253,7 +262,20 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
             }
             _ticksByInstrument.value = result
             updateDashboard(result)
+            updatePanicAlert(result)
         }
+    }
+
+    /**
+     * Runs independently of [updateDashboard] — unlike the dashboard, this only needs spot's
+     * own ticks (no session/pivots prerequisite), so it can start alerting from the very first
+     * few minutes of the day rather than waiting on anything else to be ready.
+     */
+    private fun updatePanicAlert(ticksByInstrument: Map<String, List<LiveTickEntity>>) {
+        val spotTicks = ticksByInstrument[UpstoxApiClient.NIFTY_50_INSTRUMENT_KEY] ?: emptyList()
+        val result = PanicAlert.evaluate(spotTicks) ?: return
+        _panicAlert.value = result
+        panicAlertNotifier.onPanicEvaluated(result)
     }
 
     /**

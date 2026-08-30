@@ -11,7 +11,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.niftyradar.app.domain.DashboardResult
 import com.niftyradar.app.domain.IndicatorSignal
+import com.niftyradar.app.domain.PanicAlertResult
 import com.niftyradar.app.domain.SignalDirection
+import kotlin.math.abs
 import kotlinx.coroutines.delay
 
 private val BULLISH_COLOR = Color(0xFF2E7D32)
@@ -43,6 +45,7 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
     val ticksByInstrument by viewModel.ticksByInstrument.collectAsState()
     val dailyLevels by viewModel.dailyLevels.collectAsState()
     val dashboard by viewModel.dashboard.collectAsState()
+    val panicAlert by viewModel.panicAlert.collectAsState()
     var displayMode by remember { mutableStateOf(ChartDisplayMode.Both) }
 
     LaunchedEffect(Unit) {
@@ -85,6 +88,7 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
                 }
             }
             is Phase9UiState.Ready -> {
+                PanicAlertCard(panicAlert)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Button(onClick = { viewModel.refreshAll() }) {
                         Text("Refresh now")
@@ -110,6 +114,39 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
         HorizontalDivider()
         Button(onClick = onContinueToPhase10, modifier = Modifier.fillMaxWidth()) {
             Text("Continue to Phase 10 — Session History →")
+        }
+    }
+}
+
+/**
+ * Market-wide panic alert card: NIFTY 50 spot itself making a sudden, large move in a short
+ * window, independent of any active trade or the 6-indicator dashboard below — see
+ * [com.niftyradar.app.domain.PanicAlert]'s doc comment for why this is separate. Renders nothing
+ * at all when there's no panic right now (the common case), so it never clutters the screen;
+ * when triggered, an urgent red card appears above everything else, matching the notification +
+ * longer vibration [com.niftyradar.app.notification.PanicAlertNotifier] fires at the same time.
+ */
+@Composable
+private fun PanicAlertCard(result: PanicAlertResult?) {
+    if (result == null || !result.triggered) return
+    val arrow = if (result.direction == SignalDirection.BULLISH) "⬆️" else "⬇️"
+    val message = if (result.direction == SignalDirection.BULLISH) {
+        "PANIC: NIFTY spiked +%.2f%% in the last 5 min".format(result.changePercent)
+    } else {
+        "PANIC: NIFTY dropped %.2f%% in the last 5 min".format(abs(result.changePercent))
+    }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                "$arrow $message",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
+            Text(
+                "Sudden market-wide move — check before acting on any open position.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
         }
     }
 }
