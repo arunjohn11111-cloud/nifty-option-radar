@@ -34,6 +34,20 @@ sealed class RadarSetupUiState {
     data class Failed(val message: String) : RadarSetupUiState()
 }
 
+/**
+ * The expiry dates Upstox actually lists right now, so the app never has to guess one.
+ *
+ * This screen used to ship a hard-coded default date in the text field. That is wrong in a
+ * way that gets worse silently: the date simply passes, and from then on every lock attempt
+ * fails with "zero contracts" until someone notices and types a new one by hand. Asking
+ * Upstox is both correct today and correct in six months.
+ */
+sealed class ExpiriesUiState {
+    data object Loading : ExpiriesUiState()
+    data class Ready(val expiries: List<String>) : ExpiriesUiState()
+    data class Failed(val message: String) : ExpiriesUiState()
+}
+
 class RadarSetupViewModel(application: Application) : AndroidViewModel(application) {
 
     private val tokenStore = SecureTokenStore(application)
@@ -42,6 +56,11 @@ class RadarSetupViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _uiState = MutableStateFlow<RadarSetupUiState>(RadarSetupUiState.Idle)
     val uiState: StateFlow<RadarSetupUiState> = _uiState.asStateFlow()
+
+    private val _expiries = MutableStateFlow<ExpiriesUiState>(ExpiriesUiState.Loading)
+    val expiries: StateFlow<ExpiriesUiState> = _expiries.asStateFlow()
+
+    private var expiriesLoadStarted = false
 
     /** IST trading-day key, e.g. "2026-08-26". Upstox's market hours are IST regardless of device timezone. */
     private fun todaySessionDate(): String {
@@ -63,6 +82,56 @@ class RadarSetupViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun hasLockedSessionToday(): Boolean = sessionStore.loadForDate(todaySessionDate()) != null
+
+    /**
+     * Asks Upstox which expiries are actually listed, rather than the app shipping a guessed
+     * date. Calls the option-contract endpoint with NO expiry filter (Upstox then returns
+     * every listed expiry's chain), takes the distinct `expiry` values, drops anything already
+     * past, and sorts ascending — nearest expiry first, which is the one a day-trader wants.
+     *
+     * Sorting/filtering the "yyyy-MM-dd" strings directly is safe: that format sorts
+     * lexicographically the same way it sorts chronologically.
+     *
+     * The `>= today` filter deliberately KEEPS today itself, since expiry day is a normal
+     * (and busy) trading day for this app.
+     *
+     * Guarded so re-entering the screen doesn't refetch the whole chain (it is a big response);
+     * the guard is released on failure so a retry is possible.
+     */
+    fun loadAvailableExpiries() {
+        if (expiriesLoadStarted) return
+        val token = tokenStore.getAccessToken()
+        if (token.isNullOrBlank()) {
+            _expiries.value = ExpiriesUiState.Failed("No verified Upstox token found.")
+            return
+        }
+
+        expiriesLoadStarted = true
+        _expiries.value = ExpiriesUiState.Loading
+        viewModelScope.launch {
+            when (val result = apiClient.getOptionContracts(token, expiryDate = null)) {
+                is UpstoxApiClient.ContractsResult.Failure -> {
+                    _expiries.value = ExpiriesUiState.Failed(result.message)
+                    expiriesLoadStarted = false
+                }
+                is UpstoxApiClient.ContractsResult.Success -> {
+                    val today = todaySessionDate()
+                    val upcoming = result.contracts
+                        .map { it.expiry }
+                        .filter { it.isNotBlank() && it >= today }
+                        .distinct()
+                        .sorted()
+                    if (upcoming.isEmpty()) {
+                        _expiries.value =
+                            ExpiriesUiState.Failed("Upstox listed no upcoming NIFTY expiries.")
+                        expiriesLoadStarted = false
+                    } else {
+                        _expiries.value = ExpiriesUiState.Ready(upcoming)
+                    }
+                }
+            }
+        }
+    }
 
     /**
      * Builds and locks today's radar. Refuses to do anything if a session for

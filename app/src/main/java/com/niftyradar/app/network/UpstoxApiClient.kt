@@ -164,11 +164,18 @@ class UpstoxApiClient {
     /**
      * GET /v2/option/contract?instrument_key=NSE_INDEX|Nifty 50&expiry_date=yyyy-MM-dd
      */
-    suspend fun getOptionContracts(accessToken: String, expiryDate: String): ContractsResult =
+    suspend fun getOptionContracts(
+        accessToken: String,
+        expiryDate: String? = null
+    ): ContractsResult =
         withContext(Dispatchers.IO) {
             val url = "$BASE_URL/v2/option/contract".toHttpUrl().newBuilder()
                 .addQueryParameter("instrument_key", NIFTY_50_INSTRUMENT_KEY)
-                .addQueryParameter("expiry_date", expiryDate)
+                // expiry_date is OPTIONAL on this endpoint (verified against Upstox's docs
+                // 2026-08-30). Omitting it returns the chain for EVERY listed expiry, which
+                // is what lets the app ask Upstox which expiries exist instead of shipping a
+                // guessed date — see RadarSetupViewModel.loadAvailableExpiries().
+                .apply { if (!expiryDate.isNullOrBlank()) addQueryParameter("expiry_date", expiryDate) }
                 .build()
 
             val request = Request.Builder()
@@ -197,7 +204,10 @@ class UpstoxApiClient {
                             strikePrice = c.getDouble("strike_price"),
                             instrumentKey = c.getString("instrument_key"),
                             instrumentType = c.getString("instrument_type"),
-                            expiry = c.optString("expiry", expiryDate),
+                            // Falls back to the requested date only when Upstox omits the
+                            // field; with expiryDate == null there is nothing to fall back
+                            // to, and the real value is exactly what we are here to read.
+                            expiry = c.optString("expiry", expiryDate.orEmpty()),
                             tradingSymbol = c.optString("trading_symbol", ""),
                             lotSize = c.optInt("lot_size", 0)
                         )
@@ -205,8 +215,12 @@ class UpstoxApiClient {
 
                     if (contracts.isEmpty()) {
                         return@withContext ContractsResult.Failure(
-                            "Upstox returned zero contracts for expiry $expiryDate. Check the " +
-                                "expiry date is a valid, currently-listed NIFTY expiry."
+                            if (expiryDate.isNullOrBlank()) {
+                                "Upstox returned zero NIFTY option contracts at all."
+                            } else {
+                                "Upstox returned zero contracts for expiry $expiryDate. Check the " +
+                                    "expiry date is a valid, currently-listed NIFTY expiry."
+                            }
                         )
                     }
 
