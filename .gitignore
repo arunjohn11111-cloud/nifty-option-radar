@@ -8,3 +8,6 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Generated ship/setup scripts kept beside the repo, not part of the app.
+/*.sh
