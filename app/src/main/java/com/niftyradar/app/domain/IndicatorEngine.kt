@@ -3,6 +3,7 @@ package com.niftyradar.app.domain
 import com.niftyradar.app.model.Candle
 import com.niftyradar.app.model.RadarSession
 import com.niftyradar.app.storage.LiveTickEntity
+import kotlin.math.abs
 
 /**
  * Combines the individual indicator calculators into the dashboard's ordered list of votes,
@@ -28,6 +29,13 @@ data class DashboardResult(
 object IndicatorEngine {
     /** Same "recent move" window every reading below uses — 5 minutes. */
     private const val WINDOW_MS = 5 * 60_000L
+
+    /**
+     * How far apart EMA9 and EMA21 must be, as a fraction of the index level, before Trend
+     * (9/21 EMA) is willing to vote at all. 0.05% of NIFTY is roughly 12 points at 24,000.
+     * See [trendSignal] for why this exists.
+     */
+    private const val TREND_DEADBAND_FRACTION = 0.0005
 
     fun evaluate(
         session: RadarSession,
@@ -123,6 +131,16 @@ object IndicatorEngine {
      * 9/21 EMA crossover. Notes "(just crossed)" when the previous candle had the opposite
      * relationship, since a fresh cross is a more notable event than one that's held for a
      * while.
+     *
+     * THE DEADBAND is the part that matters. A bare `ema9 > ema21` comparison has no idea how
+     * FAR apart the two lines are, so it reports a confident direction on a gap of half a
+     * point. That was seen live on 2026-09-09: EMA9 24058.14 against EMA21 24058.68, a gap of
+     * 0.54 points — 0.002% of spot, and a number that flips sign on the next candle. That is
+     * not a trend, it is two lines lying on top of each other, and a vote cast on it makes the
+     * whole board noisier without adding any information. So the lines must be at least
+     * [TREND_DEADBAND_FRACTION] of the index apart before this indicator takes a side; inside
+     * that band it returns NEUTRAL and says plainly why, rather than dressing up a coin flip
+     * as a signal.
      */
     private fun trendSignal(candles: List<Candle>): IndicatorSignal {
         val ema9Series = ExponentialMovingAverage.series(candles, 9)
@@ -133,20 +151,28 @@ object IndicatorEngine {
 
         val ema9 = ema9Series.last()
         val ema21 = ema21Series.last()
-        val direction = when {
-            ema9 > ema21 -> SignalDirection.BULLISH
-            ema9 < ema21 -> SignalDirection.BEARISH
-            else -> SignalDirection.NEUTRAL
+        val gap = ema9 - ema21
+        val deadband = abs(ema21) * TREND_DEADBAND_FRACTION
+
+        if (abs(gap) < deadband) {
+            return IndicatorSignal(
+                "Trend (9/21 EMA)",
+                SignalDirection.NEUTRAL,
+                "EMA9 %.2f vs EMA21 %.2f — only %.2f apart, inside the %.2f flat band. Too flat to call."
+                    .format(ema9, ema21, abs(gap), deadband)
+            )
         }
+
+        val direction = if (gap > 0) SignalDirection.BULLISH else SignalDirection.BEARISH
 
         val justCrossed = if (ema9Series.size >= 2 && ema21Series.size >= 2) {
             val wasAbove = ema9Series[ema9Series.size - 2] > ema21Series[ema21Series.size - 2]
-            val isAbove = ema9 > ema21
-            wasAbove != isAbove
+            wasAbove != (gap > 0)
         } else {
             false
         }
-        val reason = "EMA9 %.2f vs EMA21 %.2f%s".format(ema9, ema21, if (justCrossed) " (just crossed)" else "")
+        val reason = "EMA9 %.2f vs EMA21 %.2f — %.2f apart%s"
+            .format(ema9, ema21, abs(gap), if (justCrossed) " (just crossed)" else "")
         return IndicatorSignal("Trend (9/21 EMA)", direction, reason)
     }
 
