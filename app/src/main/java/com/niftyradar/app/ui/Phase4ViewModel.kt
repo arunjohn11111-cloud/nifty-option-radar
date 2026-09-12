@@ -286,8 +286,20 @@ class Phase4ViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private companion object {
-        /** 09:15 to 15:30 IST, in seconds — one NSE equity/F&O session. */
-        const val SESSION_SECONDS = 6 * 3600 + 15 * 60
+        /**
+         * 09:15 to 15:40 IST, in seconds — one NSE equity-derivatives session.
+         *
+         * 15:40, not 15:30: NSE extended the equity-derivatives close by ten minutes on
+         * 3 August 2026, to align with the new 15:15–15:35 closing auction session in the cash
+         * segment. This constant said 15:30 when it was written, three weeks after that took
+         * effect, which made every projection built on it 2.7% light.
+         *
+         * It is also the ONLY place in this app that hardcodes a market time, and it should
+         * stay that way. Everything else reads the exchange's own status messages from the
+         * feed (NORMAL_OPEN / NORMAL_CLOSE / CLOSING_END), which is why a change to the
+         * trading day broke a projection here and nothing at all anywhere else.
+         */
+        const val SESSION_SECONDS = 6 * 3600 + 25 * 60
 
         /**
          * Bytes a single stored tick costs, indices and write-ahead log included. Measured,
