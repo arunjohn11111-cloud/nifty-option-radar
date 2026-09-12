@@ -1,8 +1,10 @@
 package com.niftyradar.app.ui
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.ui.platform.LocalConfiguration
+import com.niftyradar.app.network.UpstoxApiClient
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,6 +41,14 @@ private const val AUTO_REFRESH_INTERVAL_MS = 5_000L
  * all charts" becomes an optional manual nudge rather than the only way to
  * see new ticks.
  */
+/**
+ * Below this width the single-scroll chain ladder is used; at or above it, the TV's
+ * fit-everything grid. Deliberately a plain dp number rather than ChartGrid's own card-width
+ * constant, which is private to that file — and the choice here is about which ARRANGEMENT
+ * suits the screen, not about how many cards happen to fit across it.
+ */
+private const val LADDER_MAX_WIDTH_DP = 700
+
 @Composable
 fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPhase10: () -> Unit) {
     val uiState by viewModel.uiState.collectAsState()
@@ -47,6 +57,8 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
     val dashboard by viewModel.dashboard.collectAsState()
     val panicAlert by viewModel.panicAlert.collectAsState()
     var displayMode by remember { mutableStateOf(ChartDisplayMode.Both) }
+    var ladderSort by remember { mutableStateOf(LadderSort.Ladder) }
+    var expandedStrike by remember { mutableStateOf<Double?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.load()
@@ -59,61 +71,113 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
+    // ONE scroll for the whole screen, and a LAZY one.
+    //
+    // This was a Column inside verticalScroll, which meant all twenty-three chart canvases were
+    // composed and drawn whether or not they were anywhere near the viewport — the phone got
+    // warm holding a screen the user could only see a fifth of. A LazyColumn composes what is
+    // visible and nothing else. It is also the only way to get the arrangement asked for: a
+    // single continuous scroll, as many screens long as it needs to be, with no scrollable
+    // nested inside another scrollable (which Compose cannot measure anyway).
+    val narrow = LocalConfiguration.current.screenWidthDp < LADDER_MAX_WIDTH_DP
+    val spotTicks = ticksByInstrument[UpstoxApiClient.NIFTY_50_INSTRUMENT_KEY] ?: emptyList()
+    val livePivots = (dailyLevels as? DailyLevelsUiState.Ready)?.pivots
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("← Back") }
+        item(key = "back") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onBack) { Text("← Back") }
+            }
         }
 
-        Text("Phase 9 — Full Radar View", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "All 23 charts together — NIFTY 50 spot plus all 22 locked option contracts. " +
-                "This is the final radar screen the spec describes; still reuses the exact " +
-                "same chart component as every phase before it.",
-            style = MaterialTheme.typography.bodyMedium
-        )
+        item(key = "title") {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Phase 9 — Full Radar View", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Spot, the at-the-money pair, and every locked strike as one chain ladder — " +
+                        "tap a strike to open its charts in place. Same chart component as every " +
+                        "phase before it.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
 
         when (val state = uiState) {
             is Phase9UiState.NoRadarLocked -> {
-                Card {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("No radar locked for today yet.", style = MaterialTheme.typography.titleMedium)
-                        Text("Go back, lock today's radar, connect Phase 4's feed, and let a few ticks arrive first.")
+                item(key = "no-radar") {
+                    Card {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("No radar locked for today yet.", style = MaterialTheme.typography.titleMedium)
+                            Text("Go back, lock today's radar, connect Phase 4's feed, and let a few ticks arrive first.")
+                        }
                     }
                 }
             }
             is Phase9UiState.Ready -> {
-                PanicAlertCard(panicAlert)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Button(onClick = { viewModel.refreshAll() }) {
-                        Text("Refresh now")
+                item(key = "panic") { PanicAlertCard(panicAlert) }
+                item(key = "refresh") {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Button(onClick = { viewModel.refreshAll() }) { Text("Refresh now") }
+                        Text(
+                            "Auto-refreshing every ${AUTO_REFRESH_INTERVAL_MS / 1000}s while this screen is open.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
                 }
-                Text(
-                    "Auto-refreshing every ${AUTO_REFRESH_INTERVAL_MS / 1000}s while this screen is open.",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                DailyLevelsCard(dailyLevels)
-                DashboardCard(dashboard)
-                ChartDisplayModeToggle(current = displayMode, onSelect = { displayMode = it })
-                ChartGrid(
-                    items = state.items,
-                    label = { it.label },
-                    instrumentKey = { it.instrumentKey },
-                    ticksByInstrument = ticksByInstrument,
-                    displayMode = displayMode
-                )
+                item(key = "levels") { DailyLevelsCard(dailyLevels) }
+                item(key = "dashboard") { DashboardCard(dashboard) }
+                item(key = "mode") {
+                    ChartDisplayModeToggle(current = displayMode, onSelect = { displayMode = it })
+                }
+
+                if (narrow) {
+                    // The at-the-money strike is taken from LIVE spot, never from the one that
+                    // was at the money when the session locked. Reading the locked value was a
+                    // real bug in this app, not a hypothetical one.
+                    val atm = spotTicks.maxByOrNull { it.receivedAtMillis }?.ltp?.let { spot ->
+                        state.rungs.minByOrNull { abs(it.strike - spot) }?.strike
+                    }
+                    strikeLadder(
+                        rungs = state.rungs,
+                        spotTicks = spotTicks,
+                        ticksByInstrument = ticksByInstrument,
+                        pivots = livePivots,
+                        atmStrike = atm,
+                        displayMode = displayMode,
+                        sort = ladderSort,
+                        onSortChange = { ladderSort = it },
+                        expandedStrike = expandedStrike,
+                        onToggleStrike = { strike ->
+                            expandedStrike = if (expandedStrike == strike) null else strike
+                        }
+                    )
+                } else {
+                    // Wide screens (the TV) keep the fit-everything grid: there, all of them
+                    // visible at once with no scrolling is the point.
+                    item(key = "grid") {
+                        ChartGrid(
+                            items = state.items,
+                            label = { it.label },
+                            instrumentKey = { it.instrumentKey },
+                            ticksByInstrument = ticksByInstrument,
+                            displayMode = displayMode
+                        )
+                    }
+                }
             }
         }
 
-        HorizontalDivider()
-        Button(onClick = onContinueToPhase10, modifier = Modifier.fillMaxWidth()) {
-            Text("Continue to Phase 10 — Session History →")
+        item(key = "next") {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                HorizontalDivider()
+                Button(onClick = onContinueToPhase10, modifier = Modifier.fillMaxWidth()) {
+                    Text("Continue to Phase 10 — Session History →")
+                }
+            }
         }
     }
 }

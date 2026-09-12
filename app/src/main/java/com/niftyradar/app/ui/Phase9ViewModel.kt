@@ -40,7 +40,18 @@ data class RadarChartItem(val label: String, val instrumentKey: String)
 
 sealed class Phase9UiState {
     data object NoRadarLocked : Phase9UiState()
-    data class Ready(val items: List<RadarChartItem>) : Phase9UiState()
+
+    /**
+     * [items] is the flat list the wide/TV grid still consumes. [rungs] is the same contracts
+     * grouped the way an option chain is actually read — one entry per strike holding both its
+     * legs — which is what the phone's single-scroll ladder needs and what a flat list cannot
+     * express: in a flat list a strike's call and put are merely adjacent, and stop being
+     * adjacent as soon as anything re-flows them into columns.
+     */
+    data class Ready(
+        val items: List<RadarChartItem>,
+        val rungs: List<LadderRung>
+    ) : Phase9UiState()
 }
 
 /**
@@ -131,8 +142,16 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
 
+        val rungs = session.strikes.sorted().map { strike ->
+            LadderRung(
+                strike = strike,
+                ceKey = session.contracts[RadarSession.contractKey(strike, "CE")]?.instrumentKey,
+                peKey = session.contracts[RadarSession.contractKey(strike, "PE")]?.instrumentKey
+            )
+        }
+
         currentSession = session
-        _uiState.value = Phase9UiState.Ready(items)
+        _uiState.value = Phase9UiState.Ready(items, rungs)
         refreshAll(items)
         loadDailyLevels()
         startTrendCandleRefreshLoop()
