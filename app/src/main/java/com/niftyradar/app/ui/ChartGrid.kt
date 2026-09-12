@@ -233,7 +233,10 @@ private fun ChartDetailView(
             ticks = ticks,
             modifier = Modifier.fillMaxWidth(),
             displayMode = displayMode,
-            chartHeight = DETAIL_CHART_HEIGHT
+            chartHeight = DETAIL_CHART_HEIGHT,
+            // Candles only here, never in the grid above: one instrument, full width, which is
+            // where a wick is wide enough to read and where a precise number is actually wanted.
+            candles = true
         )
     }
 }
