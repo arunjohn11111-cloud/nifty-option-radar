@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.niftyradar.app.domain.ChartWindow
 import com.niftyradar.app.storage.LiveTickEntity
 
 /** Narrowest a card is allowed to get on the TV "fit everything" layout before we'd rather add
@@ -80,7 +81,8 @@ fun <T> ChartGrid(
     label: (T) -> String,
     instrumentKey: (T) -> String,
     ticksByInstrument: Map<String, List<LiveTickEntity>>,
-    displayMode: ChartDisplayMode = ChartDisplayMode.Both
+    displayMode: ChartDisplayMode = ChartDisplayMode.Both,
+    window: ChartWindow = ChartWindow.Session
 ) {
     var selectedIndex by remember { mutableStateOf<Int?>(null) }
     val selected = selectedIndex?.let { items.getOrNull(it) }
@@ -95,6 +97,7 @@ fun <T> ChartGrid(
             label = label(selected),
             ticks = ticksByInstrument[instrumentKey(selected)] ?: emptyList(),
             displayMode = displayMode,
+            window = window,
             onBack = { selectedIndex = null }
         )
         return
@@ -112,6 +115,7 @@ fun <T> ChartGrid(
                         label = label(entry),
                         ticks = ticksByInstrument[instrumentKey(entry)] ?: emptyList(),
                         displayMode = displayMode,
+                        window = window,
                         chartHeight = MAX_TV_CHART_HEIGHT,
                         onClick = null,
                         modifier = Modifier.fillMaxWidth()
@@ -143,6 +147,7 @@ fun <T> ChartGrid(
                                 label = label(entry),
                                 ticks = ticksByInstrument[instrumentKey(entry)] ?: emptyList(),
                                 displayMode = displayMode,
+                                window = window,
                                 chartHeight = chartHeight,
                                 onClick = { selectedIndex = index },
                                 modifier = Modifier.weight(1f)
@@ -177,6 +182,7 @@ private fun ChartCard(
     label: String,
     ticks: List<LiveTickEntity>,
     displayMode: ChartDisplayMode,
+    window: ChartWindow,
     chartHeight: Dp,
     onClick: (() -> Unit)?,
     modifier: Modifier = Modifier
@@ -192,7 +198,8 @@ private fun ChartCard(
                 ticks = ticks,
                 modifier = Modifier.fillMaxWidth(),
                 displayMode = displayMode,
-                chartHeight = chartHeight
+                chartHeight = chartHeight,
+                window = window
             )
         }
     }
@@ -222,6 +229,7 @@ private fun ChartDetailView(
     label: String,
     ticks: List<LiveTickEntity>,
     displayMode: ChartDisplayMode,
+    window: ChartWindow,
     onBack: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -236,7 +244,8 @@ private fun ChartDetailView(
             chartHeight = DETAIL_CHART_HEIGHT,
             // Candles only here, never in the grid above: one instrument, full width, which is
             // where a wick is wide enough to read and where a precise number is actually wanted.
-            candles = true
+            candles = true,
+            window = window
         )
     }
 }
@@ -247,6 +256,26 @@ private fun ChartDetailView(
  * [current] and [onSelect] are hoisted so each screen keeps its own
  * `remember { mutableStateOf(...) }` state (this composable holds none).
  */
+/**
+ * The window selector, sitting beside the Both/Price/OI toggle.
+ *
+ * A selector, and a DEFAULT. The default is the part that matters: almost every glance takes
+ * whatever it is, and the previous implicit default — everything recorded — is what let a chart
+ * draw a thirteen-hour axis over a six-and-a-half-hour trading day. See ChartWindow.
+ */
+@Composable
+fun ChartWindowSelector(current: ChartWindow, onSelect: (ChartWindow) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (option in ChartWindow.values()) {
+            if (option == current) {
+                Button(onClick = { onSelect(option) }) { Text(option.label) }
+            } else {
+                OutlinedButton(onClick = { onSelect(option) }) { Text(option.label) }
+            }
+        }
+    }
+}
+
 @Composable
 fun ChartDisplayModeToggle(current: ChartDisplayMode, onSelect: (ChartDisplayMode) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

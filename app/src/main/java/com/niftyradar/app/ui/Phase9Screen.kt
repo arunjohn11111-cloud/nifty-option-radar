@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import com.niftyradar.app.domain.DashboardResult
 import com.niftyradar.app.domain.IndicatorSignal
 import com.niftyradar.app.domain.PanicAlertResult
+import com.niftyradar.app.domain.ChartWindow
 import com.niftyradar.app.domain.SignalDirection
 import com.niftyradar.app.storage.LiveTickEntity
 import kotlin.math.abs
@@ -67,6 +68,7 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
     val panicAlert by viewModel.panicAlert.collectAsState()
     var displayMode by remember { mutableStateOf(ChartDisplayMode.Both) }
     var ladderSort by remember { mutableStateOf(LadderSort.Ladder) }
+    var chartWindow by remember { mutableStateOf(ChartWindow.Session) }
     var expandedStrike by remember { mutableStateOf<Double?>(null) }
 
     // One LaunchedEffect, not two. The refresh loop used to live here and now lives in the
@@ -129,7 +131,17 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
                 item(key = "levels") { DailyLevelsCard(dailyLevels) }
                 item(key = "dashboard") { DashboardCard(dashboard) }
                 item(key = "mode") {
-                    ChartDisplayModeToggle(current = displayMode, onSelect = { displayMode = it })
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ChartDisplayModeToggle(current = displayMode, onSelect = { displayMode = it })
+                        ChartWindowSelector(current = chartWindow, onSelect = { chartWindow = it })
+                        Text(
+                            "Session shows 09:15–15:40 only — the ticks recorded before the " +
+                                "open and after the close are left out, so the trading day gets " +
+                                "the whole width.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NEUTRAL_COLOR
+                        )
+                    }
                 }
 
                 if (narrow) {
@@ -146,6 +158,7 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
                         pivots = livePivots,
                         atmStrike = atm,
                         displayMode = displayMode,
+                        window = chartWindow,
                         sort = ladderSort,
                         onSortChange = { ladderSort = it },
                         expandedStrike = expandedStrike,
@@ -162,7 +175,8 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
                             label = { it.label },
                             instrumentKey = { it.instrumentKey },
                             ticksByInstrument = ticksByInstrument,
-                            displayMode = displayMode
+                            displayMode = displayMode,
+                            window = chartWindow
                         )
                     }
                 }

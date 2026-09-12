@@ -27,6 +27,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.niftyradar.app.domain.ExponentialMovingAverage
 import com.niftyradar.app.domain.TickCandles
+import com.niftyradar.app.domain.ChartWindow
+import com.niftyradar.app.domain.ChartWindows
 import com.niftyradar.app.storage.LiveTickEntity
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -234,7 +236,8 @@ fun LiveTickChart(
     displayMode: ChartDisplayMode = ChartDisplayMode.Both,
     chartHeight: Dp = 160.dp,
     candles: Boolean = false,
-    compact: Boolean = false
+    compact: Boolean = false,
+    window: ChartWindow = ChartWindow.Session
 ) {
     if (ticks.size < 2) {
         Box(modifier = modifier.height(chartHeight), contentAlignment = Alignment.Center) {
@@ -255,16 +258,29 @@ fun LiveTickChart(
     // as a stated fact instead of a chart that merely looks wrong.
     val nowMillis = System.currentTimeMillis()
     val futureTickCount = ticks.count { it.receivedAtMillis > nowMillis + CLOCK_SKEW_TOLERANCE_MS }
-    @Suppress("NAME_SHADOWING")
-    val ticks = if (futureTickCount == 0) ticks
+    val plausibleTicks = if (futureTickCount == 0) ticks
     else ticks.filter { it.receivedAtMillis <= nowMillis + CLOCK_SKEW_TOLERANCE_MS }
 
-    if (ticks.size < 2) {
+    if (plausibleTicks.size < 2) {
         Box(modifier = modifier.height(chartHeight), contentAlignment = Alignment.Center) {
             Text(
                 "All $futureTickCount stored tick(s) are timestamped in the future — " +
                     "nothing left to draw. The device clock was wrong when these were recorded."
             )
+        }
+        return
+    }
+
+    // Then the window — see ChartWindow. Applied here rather than by each caller so that no
+    // chart in this app can accidentally keep the old "draw everything recorded" behaviour,
+    // which produced a thirteen-hour axis on a six-and-a-half-hour trading day.
+    val windowed = ChartWindows.apply(window, plausibleTicks)
+    @Suppress("NAME_SHADOWING")
+    val ticks = windowed.ticks
+
+    if (ticks.size < 2) {
+        Box(modifier = modifier.height(chartHeight), contentAlignment = Alignment.Center) {
+            Text("Not enough ticks in the ${window.label} window yet to draw a chart.")
         }
         return
     }
@@ -569,6 +585,13 @@ fun LiveTickChart(
                 style = MaterialTheme.typography.labelSmall,
                 color = SELL_COLOR
             )
+        }
+
+        // Why the axis spans what it spans. Only ever non-null when the window is doing
+        // something worth knowing about — see WindowedTicks.note.
+        val windowNote = windowed.note
+        if (windowNote != null) {
+            Text(windowNote, style = MaterialTheme.typography.labelSmall, color = AXIS_LABEL_COLOR)
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {

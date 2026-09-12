@@ -26,6 +26,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.niftyradar.app.domain.ChartWindow
+import com.niftyradar.app.domain.ChartWindows
 import com.niftyradar.app.domain.PivotLevels
 import com.niftyradar.app.storage.LiveTickEntity
 import kotlin.math.abs
@@ -128,10 +130,18 @@ private fun Sparkline(ticks: List<LiveTickEntity>, modifier: Modifier = Modifier
 private fun RungSide(
     side: String,
     ticks: List<LiveTickEntity>,
+    window: ChartWindow,
     modifier: Modifier = Modifier
 ) {
+    // Price and its percent move read the newest tick whatever the window is — those answer
+    // "where is this contract now". The sparkline and the OI change are windowed, and the OI
+    // change gets strictly better for it: over the full recorded span its baseline was the
+    // first tick after the app happened to be opened, which on a day the app was opened at
+    // 10:55 meant "OI change since 10:55" while reading as "OI change today". Windowed to the
+    // session it is measured from the market's own open.
     val last = ticks.maxByOrNull { it.receivedAtMillis }
     val move = percentChange(last?.closePrice, last?.ltp)
+    val windowed = ChartWindows.apply(window, ticks).ticks
     Column(modifier = modifier) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -161,9 +171,9 @@ private fun RungSide(
             fontWeight = FontWeight.SemiBold,
             maxLines = 1
         )
-        Sparkline(ticks, modifier = Modifier.fillMaxWidth())
+        Sparkline(windowed, modifier = Modifier.fillMaxWidth())
         val oi = lastOi(ticks)
-        val oiMove = percentChange(firstOi(ticks), oi)
+        val oiMove = percentChange(firstOi(windowed), oi)
         Text(
             if (oi != null) formatMillions(oi) else "—",
             style = MaterialTheme.typography.labelSmall,
@@ -189,7 +199,13 @@ private fun RungSide(
  * asked in.
  */
 @Composable
-private fun SpotStrip(spotTicks: List<LiveTickEntity>, pivots: PivotLevels?) {
+private fun SpotStrip(
+    spotTicks: List<LiveTickEntity>,
+    pivots: PivotLevels?,
+    window: ChartWindow
+) {
+    // The big number and its change come from the LATEST tick regardless of window — "what is
+    // NIFTY right now" is not a windowed question. Only the sparkline's shape is windowed.
     val last = spotTicks.maxByOrNull { it.receivedAtMillis }
     Column(
         modifier = Modifier
@@ -221,7 +237,7 @@ private fun SpotStrip(spotTicks: List<LiveTickEntity>, pivots: PivotLevels?) {
                 )
             }
         }
-        Sparkline(spotTicks, modifier = Modifier.fillMaxWidth())
+        Sparkline(ChartWindows.apply(window, spotTicks).ticks, modifier = Modifier.fillMaxWidth())
         if (pivots != null && last != null) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
@@ -302,13 +318,14 @@ fun LazyListScope.strikeLadder(
     pivots: PivotLevels?,
     atmStrike: Double?,
     displayMode: ChartDisplayMode,
+    window: ChartWindow,
     sort: LadderSort,
     onSortChange: (LadderSort) -> Unit,
     expandedStrike: Double?,
     onToggleStrike: (Double) -> Unit
 ) {
     item(key = "ladder-spot") {
-        SpotStrip(spotTicks = spotTicks, pivots = pivots)
+        SpotStrip(spotTicks = spotTicks, pivots = pivots, window = window)
     }
 
     val atmRung = rungs.firstOrNull { it.strike == atmStrike }
@@ -340,7 +357,8 @@ fun LazyListScope.strikeLadder(
                             modifier = Modifier.fillMaxWidth(),
                             displayMode = displayMode,
                             chartHeight = 120.dp,
-                            compact = true
+                            compact = true,
+                            window = window
                         )
                     }
                     Column(modifier = Modifier.weight(1f)) {
@@ -350,7 +368,8 @@ fun LazyListScope.strikeLadder(
                             modifier = Modifier.fillMaxWidth(),
                             displayMode = displayMode,
                             chartHeight = 120.dp,
-                            compact = true
+                            compact = true,
+                            window = window
                         )
                     }
                 }
@@ -399,8 +418,11 @@ fun LazyListScope.strikeLadder(
         val last = ticks.maxByOrNull { it.receivedAtMillis }
         abs(percentChange(last?.closePrice, last?.ltp) ?: 0.0)
     }
+    // Windowed, for one reason: the "OI change" chip sorts by this, and the rows display the
+    // windowed figure. Sorting on a differently-computed number than the one on screen produces
+    // an order the user cannot verify by looking, which is worse than no sort at all.
     fun oiActivity(rung: LadderRung): Double = listOf("CE", "PE").maxOf { side ->
-        val ticks = ticksFor(rung, side)
+        val ticks = ChartWindows.apply(window, ticksFor(rung, side)).ticks
         abs(percentChange(firstOi(ticks), lastOi(ticks)) ?: 0.0)
     }
 
@@ -425,7 +447,7 @@ fun LazyListScope.strikeLadder(
                 .padding(horizontal = 4.dp, vertical = 6.dp)
         ) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                RungSide("CE", ticksFor(rung, "CE"), modifier = Modifier.weight(1f))
+                RungSide("CE", ticksFor(rung, "CE"), window, modifier = Modifier.weight(1f))
                 Column(
                     modifier = Modifier.width(STRIKE_COLUMN_WIDTH),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -440,7 +462,7 @@ fun LazyListScope.strikeLadder(
                         Text("ATM", style = MaterialTheme.typography.labelSmall, color = ATM_EDGE)
                     }
                 }
-                RungSide("PE", ticksFor(rung, "PE"), modifier = Modifier.weight(1f))
+                RungSide("PE", ticksFor(rung, "PE"), window, modifier = Modifier.weight(1f))
             }
 
             // Opened in place rather than on a new screen: the ladder above and below stays
@@ -455,7 +477,8 @@ fun LazyListScope.strikeLadder(
                 LiveTickChart(
                     ticks = ticksFor(rung, "CE"),
                     modifier = Modifier.fillMaxWidth(),
-                    displayMode = displayMode
+                    displayMode = displayMode,
+                    window = window
                 )
                 Text(
                     "%.0f PE".format(rung.strike),
@@ -466,7 +489,8 @@ fun LazyListScope.strikeLadder(
                 LiveTickChart(
                     ticks = ticksFor(rung, "PE"),
                     modifier = Modifier.fillMaxWidth(),
-                    displayMode = displayMode
+                    displayMode = displayMode,
+                    window = window
                 )
                 Text(
                     "Tap the row again to close it.",
