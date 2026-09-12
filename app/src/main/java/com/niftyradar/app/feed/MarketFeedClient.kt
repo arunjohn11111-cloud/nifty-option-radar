@@ -158,6 +158,11 @@ class MarketFeedClient {
             val full = feed.fullFeed
             when {
                 full.hasMarketFF() -> full.marketFF.let {
+                    // Level 1 of the depth book. "full" mode is full_d5, so five levels
+                    // arrive; only the best bid/ask is read, which is what aggressor
+                    // classification and mid-pricing actually need. An empty list is normal
+                    // (pre-open, or an instrument with no resting orders) and must not throw.
+                    val best = it.marketLevel.bidAskQuoteList.firstOrNull()
                     it.ltpc.toLiveQuote(
                         openInterest = it.oi,
                         volumeTradedToday = it.vtt,
@@ -168,7 +173,12 @@ class MarketFeedClient {
                         theta = it.optionGreeks.theta,
                         gamma = it.optionGreeks.gamma,
                         vega = it.optionGreeks.vega,
-                        rho = it.optionGreeks.rho
+                        rho = it.optionGreeks.rho,
+                        bestBidPrice = best?.bidP,
+                        bestAskPrice = best?.askP,
+                        bestBidQuantity = best?.bidQ,
+                        bestAskQuantity = best?.askQ,
+                        averageTradedPrice = it.atp
                     )
                 }
                 full.hasIndexFF() -> full.indexFF.ltpc.toLiveQuote()
@@ -184,7 +194,12 @@ class MarketFeedClient {
                 theta = it.optionGreeks.theta,
                 gamma = it.optionGreeks.gamma,
                 vega = it.optionGreeks.vega,
-                rho = it.optionGreeks.rho
+                rho = it.optionGreeks.rho,
+                // This mode names its single depth level `firstDepth` rather than a list.
+                bestBidPrice = it.firstDepth.bidP,
+                bestAskPrice = it.firstDepth.askP,
+                bestBidQuantity = it.firstDepth.bidQ,
+                bestAskQuantity = it.firstDepth.askQ
             )
         }
         feed.hasLtpc() -> feed.ltpc.toLiveQuote()
@@ -201,7 +216,12 @@ class MarketFeedClient {
         theta: Double? = null,
         gamma: Double? = null,
         vega: Double? = null,
-        rho: Double? = null
+        rho: Double? = null,
+        bestBidPrice: Double? = null,
+        bestAskPrice: Double? = null,
+        bestBidQuantity: Long? = null,
+        bestAskQuantity: Long? = null,
+        averageTradedPrice: Double? = null
     ) = LiveQuote(
         ltp = ltp,
         closePrice = cp,
@@ -215,7 +235,15 @@ class MarketFeedClient {
         theta = theta,
         gamma = gamma,
         vega = vega,
-        rho = rho
+        rho = rho,
+        // Protobuf proto3 has no null: an absent double arrives as 0.0. A real bid or ask is
+        // never 0, so 0 here means "not quoted" and is normalised to null rather than being
+        // stored as a price of zero, which would wreck every mid and every spread.
+        bestBidPrice = bestBidPrice?.takeIf { it > 0.0 },
+        bestAskPrice = bestAskPrice?.takeIf { it > 0.0 },
+        bestBidQuantity = bestBidQuantity?.takeIf { it > 0L },
+        bestAskQuantity = bestAskQuantity?.takeIf { it > 0L },
+        averageTradedPrice = averageTradedPrice?.takeIf { it > 0.0 }
     )
 
     fun disconnect() {

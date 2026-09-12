@@ -35,5 +35,14 @@ data class LiveTickEntity(
     val theta: Double? = null,
     val gamma: Double? = null,
     val vega: Double? = null,
-    val rho: Double? = null
+    val rho: Double? = null,
+    // version 4: order-book level 1 and Upstox's own day VWAP. All four bid/ask fields have
+    // been arriving on every tick since Phase 4 and were discarded; they are persisted now so
+    // aggressor classification and mid-pricing can be computed from recorded history and not
+    // only live. Nullable because the index feed has no order book at all.
+    val bestBidPrice: Double? = null,
+    val bestAskPrice: Double? = null,
+    val bestBidQuantity: Long? = null,
+    val bestAskQuantity: Long? = null,
+    val averageTradedPrice: Double? = null
 )

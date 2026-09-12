@@ -42,7 +42,12 @@ class LiveTickStore(context: Context) {
                 theta = event.quote.theta,
                 gamma = event.quote.gamma,
                 vega = event.quote.vega,
-                rho = event.quote.rho
+                rho = event.quote.rho,
+                bestBidPrice = event.quote.bestBidPrice,
+                bestAskPrice = event.quote.bestAskPrice,
+                bestBidQuantity = event.quote.bestBidQuantity,
+                bestAskQuantity = event.quote.bestAskQuantity,
+                averageTradedPrice = event.quote.averageTradedPrice
             )
         )
     }

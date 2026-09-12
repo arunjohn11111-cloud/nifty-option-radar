@@ -26,8 +26,16 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * feed (see [com.niftyradar.app.feed.MarketFeedClient]), no Black-Scholes
  * math in this app. Same real-[Migration] discipline as version 2, for the
  * same reason.
+ *
+ * version 4 (order book + VWAP): added [LiveTickEntity.bestBidPrice]/[bestAskPrice]/
+ * [bestBidQuantity]/[bestAskQuantity] and [averageTradedPrice]. These were always in the
+ * feed — `marketLevel.bidAskQuote` and `atp` on `MarketFullFeed` — and were read and thrown
+ * away for three phases. Persisting them is what makes it possible to ask, of recorded
+ * history and not just of the live moment, whether a trade went off at the bid or the ask.
+ * Same real-[Migration] discipline: by now there is a rolling window of real recorded days
+ * on the device, and a destructive fallback would delete all of it on install.
  */
-@Database(entities = [LiveTickEntity::class], version = 3, exportSchema = false)
+@Database(entities = [LiveTickEntity::class], version = 4, exportSchema = false)
 abstract class NiftyRadarDatabase : RoomDatabase() {
 
     abstract fun liveTickDao(): LiveTickDao
@@ -52,6 +60,16 @@ abstract class NiftyRadarDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE live_ticks ADD COLUMN bestBidPrice REAL")
+                db.execSQL("ALTER TABLE live_ticks ADD COLUMN bestAskPrice REAL")
+                db.execSQL("ALTER TABLE live_ticks ADD COLUMN bestBidQuantity INTEGER")
+                db.execSQL("ALTER TABLE live_ticks ADD COLUMN bestAskQuantity INTEGER")
+                db.execSQL("ALTER TABLE live_ticks ADD COLUMN averageTradedPrice REAL")
+            }
+        }
+
         /**
          * Named here rather than inline so [LiveTickStore] can measure the real on-disk
          * footprint (this file plus SQLite's -wal and -shm siblings) without duplicating
@@ -66,7 +84,7 @@ abstract class NiftyRadarDatabase : RoomDatabase() {
                     NiftyRadarDatabase::class.java,
                     FILE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build().also { instance = it }
             }
     }
