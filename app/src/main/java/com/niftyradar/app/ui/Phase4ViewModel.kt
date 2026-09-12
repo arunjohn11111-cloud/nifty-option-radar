@@ -202,8 +202,47 @@ class Phase4ViewModel(application: Application) : AndroidViewModel(application) 
                 "would hold ${formatBytes(bytesPerSession * LiveTickStore.RETENTION_SESSIONS)}."
         }
         if (perDay.isEmpty()) return head
-        val breakdown = perDay.take(8).joinToString("  ") { "${it.day}: ${it.ticks}" }
-        return "$head\nPer day — $breakdown"
+        return "$head\n\n" + perDay.take(8).joinToString("\n") { describeDay(it) }
+    }
+
+    /**
+     * One recorded day as a rate rather than a count.
+     *
+     * A count on its own is not readable and was actively misleading here: four recorded days
+     * held 39,613 ticks on a single Monday and 253 across the rest, so both the total and the
+     * average described a device that does not exist. First-to-last gives a real denominator,
+     * which turns any past day with enough ticks into the measurement — no live session needed.
+     *
+     * The caveat stays attached rather than being dropped for brevity: the span covers only
+     * the minutes the app was actually open, so it is the rate WHILE CONNECTED. That happens
+     * to be exactly the quantity every downstream decision needs, since a screen only has to
+     * keep up while it is on.
+     */
+    private fun describeDay(day: com.niftyradar.app.storage.DayTickCount): String {
+        val span = day.spanSeconds
+        val head = "${day.day}: ${day.ticks} tick(s)"
+        if (span < MIN_SPAN_TO_RATE_SECONDS || day.ticks < 2) {
+            return "$head — too short a window to read a rate from"
+        }
+        val minutes = span / 60
+        val connected = if (minutes >= 60) "%.1fh".format(span / 3600.0) else "${minutes}m"
+        // The instrument count is not stored per day, so it is inferred from the subscription
+        // this app always uses: spot plus the 22 locked contracts. Stated, not hidden, because
+        // a day recorded under a different set would make this line wrong.
+        val perInstrumentPerMinute = day.ticks.toDouble() / ASSUMED_INSTRUMENTS / (span / 60.0)
+        val secondsEach = if (perInstrumentPerMinute > 0.0) 60.0 / perInstrumentPerMinute else 0.0
+        val rowsPerSession = perInstrumentPerMinute / 60.0 * SESSION_SECONDS * ASSUMED_INSTRUMENTS
+        val bytes = (rowsPerSession * BYTES_PER_TICK).toLong()
+        // Below one a minute, the per-minute figure rounds to "0.0/instrument/min", which reads
+        // as nothing arriving when in fact something did — so a slow day is described only by
+        // its cadence, which stays truthful at any magnitude.
+        val rateText = if (perInstrumentPerMinute >= 1.0) {
+            "%.1f/instrument/min (one every %.1fs)".format(perInstrumentPerMinute, secondsEach)
+        } else {
+            "one every %.0fs per instrument".format(secondsEach)
+        }
+        return "$head over $connected connected — $rateText. " +
+            "A full session at this rate: ${formatBytes(bytes)}."
     }
 
     /**
@@ -255,5 +294,18 @@ class Phase4ViewModel(application: Application) : AndroidViewModel(application) 
          * not assumed: 12.6 MB across 39,843 rows on a real device.
          */
         const val BYTES_PER_TICK = 316
+
+        /**
+         * NIFTY 50 spot plus the 22 locked contracts — the set this app always subscribes to
+         * (Phase4ViewModel.connect). Used only as the divisor for a PAST day, whose own
+         * instrument count is not stored per row.
+         */
+        const val ASSUMED_INSTRUMENTS = 23
+
+        /**
+         * Below this, first-to-last is too short to divide by. A day where the app was opened
+         * for forty seconds produces a denominator that turns one heartbeat into a wild rate.
+         */
+        const val MIN_SPAN_TO_RATE_SECONDS = 120L
     }
 }

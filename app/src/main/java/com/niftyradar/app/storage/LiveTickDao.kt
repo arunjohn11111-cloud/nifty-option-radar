@@ -65,13 +65,31 @@ interface LiveTickDao {
     @Query("SELECT COUNT(DISTINCT instrumentKey) FROM live_ticks WHERE receivedAtMillis >= :sinceMillis")
     suspend fun instrumentCountSince(sinceMillis: Long): Int
 
-    /** Per-day tick counts, newest day first — so a heartbeat-only day is visible as one. */
+    /**
+     * Per-day tick counts WITH the wall-clock span they arrived over, newest day first.
+     *
+     * The span is the whole point, and leaving it out the first time was a wasted opportunity.
+     * A per-day count alone still cannot be read as a rate — a device holding four recorded
+     * days turned out to hold 39,613 ticks on one Monday and 253 across the other three, which
+     * a total or an average hides completely. But first-to-last on a single day IS a known
+     * number of seconds, so every past day already on disk can be converted into the rate that
+     * was otherwise going to need a fresh live session to measure.
+     */
     @Query(
-        "SELECT sessionDate AS day, COUNT(*) AS ticks FROM live_ticks " +
-            "GROUP BY sessionDate ORDER BY sessionDate DESC"
+        "SELECT sessionDate AS day, COUNT(*) AS ticks, " +
+            "MIN(receivedAtMillis) AS firstMillis, MAX(receivedAtMillis) AS lastMillis " +
+            "FROM live_ticks GROUP BY sessionDate ORDER BY sessionDate DESC"
     )
     suspend fun ticksPerRecordedDay(): List<DayTickCount>
 }
 
 /** One row of [LiveTickDao.ticksPerRecordedDay]. */
-data class DayTickCount(val day: String, val ticks: Int)
+data class DayTickCount(
+    val day: String,
+    val ticks: Int,
+    val firstMillis: Long,
+    val lastMillis: Long
+) {
+    /** Seconds between the first and last tick recorded that day. */
+    val spanSeconds: Long get() = ((lastMillis - firstMillis) / 1000L).coerceAtLeast(0L)
+}
