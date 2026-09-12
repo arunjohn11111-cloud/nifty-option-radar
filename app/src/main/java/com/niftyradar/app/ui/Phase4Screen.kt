@@ -27,6 +27,8 @@ fun Phase4Screen(viewModel: Phase4ViewModel, onBack: () -> Unit, onContinueToPha
     val connectionState by viewModel.connectionState.collectAsState()
     val quotes by viewModel.quotes.collectAsState()
     val storedTickSummary by viewModel.storedTickSummary.collectAsState()
+    val storageSummary by viewModel.storageSummary.collectAsState()
+    val compacting by viewModel.compacting.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.loadLockedSession()
@@ -96,6 +98,26 @@ fun Phase4Screen(viewModel: Phase4ViewModel, onBack: () -> Unit, onContinueToPha
         if (storedTickSummary != null) {
             Text(storedTickSummary!!, style = MaterialTheme.typography.bodyMedium)
         }
+
+        // Retention. Worth showing rather than hiding: until now nothing ever deleted a tick,
+        // so this number is the first honest answer to "how much of my phone is this using?"
+        if (storageSummary != null) {
+            Text(storageSummary!!, style = MaterialTheme.typography.bodySmall)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Button(
+                onClick = { viewModel.compactDatabase() },
+                enabled = !compacting
+            ) {
+                Text(if (compacting) "Compacting…" else "Compact database")
+            }
+        }
+        Text(
+            "The rolling window is enforced automatically. Compacting is separate and manual: " +
+                "it rewrites the database to hand the freed space back to the phone, which is " +
+                "slow and needs room while it runs.",
+            style = MaterialTheme.typography.bodySmall
+        )
 
         if (session != null) {
             Button(onClick = onContinueToPhase6, modifier = Modifier.fillMaxWidth()) {

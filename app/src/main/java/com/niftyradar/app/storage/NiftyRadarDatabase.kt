@@ -52,12 +52,19 @@ abstract class NiftyRadarDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Named here rather than inline so [LiveTickStore] can measure the real on-disk
+         * footprint (this file plus SQLite's -wal and -shm siblings) without duplicating
+         * the literal and risking the two drifting apart.
+         */
+        const val FILE_NAME = "nifty_radar.db"
+
         fun getInstance(context: Context): NiftyRadarDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     NiftyRadarDatabase::class.java,
-                    "nifty_radar.db"
+                    FILE_NAME
                 )
                     .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build().also { instance = it }

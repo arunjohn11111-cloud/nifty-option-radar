@@ -51,6 +51,13 @@ class Phase4ViewModel(application: Application) : AndroidViewModel(application) 
     private val _storedTickSummary = MutableStateFlow<String?>(null)
     val storedTickSummary: StateFlow<String?> = _storedTickSummary.asStateFlow()
 
+    /** Retention readout: how much is on disk across ALL recorded days, and what the trim did. */
+    private val _storageSummary = MutableStateFlow<String?>(null)
+    val storageSummary: StateFlow<String?> = _storageSummary.asStateFlow()
+
+    private val _compacting = MutableStateFlow(false)
+    val compacting: StateFlow<Boolean> = _compacting.asStateFlow()
+
     private var lockedSession: RadarSession? = null
 
     init {
@@ -59,6 +66,19 @@ class Phase4ViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             feedClient.tickEvents.collect { event ->
                 liveTickStore.recordTick(todaySessionDate(), event)
+            }
+        }
+
+        // Enforce the rolling retention window BEFORE any connect() can start inserting, and
+        // only once per process. Nothing used to delete old ticks at all, so this database
+        // could only grow; see LiveTickStore.trimToRecentSessions.
+        viewModelScope.launch {
+            val trim = liveTickStore.trimOnceThisProcess()
+            if (trim != null && trim.didAnything) {
+                _storageSummary.value =
+                    "Retention: removed ${trim.deletedTicks} tick(s) from " +
+                        "${trim.deletedDays.size} day(s) older than the most recent " +
+                        "${LiveTickStore.RETENTION_SESSIONS}."
             }
         }
     }
@@ -126,7 +146,39 @@ class Phase4ViewModel(application: Application) : AndroidViewModel(application) 
             val instrumentCount = liveTickStore.instrumentCountForSession(date)
             _storedTickSummary.value =
                 "$tickCount tick(s) stored for today across $instrumentCount instrument(s)."
+            _storageSummary.value = describe(liveTickStore.storageSummary())
         }
+    }
+
+    /**
+     * Reclaims the disk space a trim freed (see [LiveTickStore.compact]). Behind an explicit
+     * button because VACUUM rewrites the whole file — slow, and it needs headroom while it
+     * runs, so it is never something to do to someone's phone unasked.
+     */
+    fun compactDatabase() {
+        if (_compacting.value) return
+        viewModelScope.launch {
+            _compacting.value = true
+            val freed = liveTickStore.compact()
+            val summary = liveTickStore.storageSummary()
+            _compacting.value = false
+            _storageSummary.value =
+                "Compacted: ${formatBytes(freed)} returned to the phone. ${describe(summary)}"
+        }
+    }
+
+    private fun describe(summary: LiveTickStore.StorageSummary): String = when {
+        summary.recordedDays == 0 -> "Nothing recorded on disk yet."
+        else -> "On disk: ${summary.totalTicks} tick(s) across ${summary.recordedDays} " +
+            "recorded day(s) (${summary.oldestDay} to ${summary.newestDay}), " +
+            "${formatBytes(summary.onDiskBytes)}. Keeping the most recent " +
+            "${LiveTickStore.RETENTION_SESSIONS} trading days."
+    }
+
+    private fun formatBytes(bytes: Long): String = when {
+        bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
+        bytes >= 1024L -> "%.0f KB".format(bytes / 1024.0)
+        else -> "$bytes B"
     }
 
     override fun onCleared() {
