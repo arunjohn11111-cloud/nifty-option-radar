@@ -44,4 +44,34 @@ interface LiveTickDao {
     /** Across every recorded day, not just today — what the retention readout reports. */
     @Query("SELECT COUNT(*) FROM live_ticks")
     suspend fun totalCount(): Int
+
+    /**
+     * How many ticks landed since [sinceMillis]. With its sibling below, this is the app's
+     * only honest measurement of how fast the feed actually snapshots.
+     *
+     * The total tick count cannot answer that question, and reading it as if it could was a
+     * mistake: this app's feed only runs while a screen holding it is open, so the total
+     * measures how long the app was used, not what the exchange sends. A count over a known
+     * recent window divides out by a known number of seconds, which is the whole point.
+     */
+    @Query("SELECT COUNT(*) FROM live_ticks WHERE receivedAtMillis >= :sinceMillis")
+    suspend fun countSince(sinceMillis: Long): Int
+
+    /**
+     * How many distinct instruments reported in that same window — the divisor. Taken from
+     * the data rather than assumed to be 23, because a subscription that silently dropped
+     * instruments would otherwise inflate the per-instrument rate instead of showing up.
+     */
+    @Query("SELECT COUNT(DISTINCT instrumentKey) FROM live_ticks WHERE receivedAtMillis >= :sinceMillis")
+    suspend fun instrumentCountSince(sinceMillis: Long): Int
+
+    /** Per-day tick counts, newest day first — so a heartbeat-only day is visible as one. */
+    @Query(
+        "SELECT sessionDate AS day, COUNT(*) AS ticks FROM live_ticks " +
+            "GROUP BY sessionDate ORDER BY sessionDate DESC"
+    )
+    suspend fun ticksPerRecordedDay(): List<DayTickCount>
 }
+
+/** One row of [LiveTickDao.ticksPerRecordedDay]. */
+data class DayTickCount(val day: String, val ticks: Int)

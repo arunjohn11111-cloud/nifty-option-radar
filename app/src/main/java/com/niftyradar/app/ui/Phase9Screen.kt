@@ -15,6 +15,7 @@ import com.niftyradar.app.domain.DashboardResult
 import com.niftyradar.app.domain.IndicatorSignal
 import com.niftyradar.app.domain.PanicAlertResult
 import com.niftyradar.app.domain.SignalDirection
+import com.niftyradar.app.storage.LiveTickEntity
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 
@@ -22,8 +23,28 @@ private val BULLISH_COLOR = Color(0xFF2E7D32)
 private val BEARISH_COLOR = Color(0xFFC62828)
 private val NEUTRAL_COLOR = Color(0xFF757575)
 
-/** How often the auto-refresh loop below re-reads stored ticks while this screen is open. */
+/**
+ * How often the auto-refresh loop below re-reads stored ticks while this screen is open.
+ *
+ * NOT yet reduced toward one second, and that is a measurement problem rather than a decision
+ * not taken. Each pass re-reads every instrument's ENTIRE day from Room, so its cost grows
+ * through the session — at one snapshot per instrument per second, by the close that is over
+ * half a million rows per pass. Cutting the interval before the queries are windowed would
+ * make a late-afternoon screen worse, not more live. The windowed version needs each
+ * instrument's day-open baseline fetched separately, or "OI change since open" would quietly
+ * become "OI change over the last few minutes" — a signal changing meaning without saying so.
+ * See LiveTickStore.snapshotRate: measure the rate first, then size the window.
+ */
 private const val AUTO_REFRESH_INTERVAL_MS = 5_000L
+
+/** Newer than this and the feed is unambiguously live. */
+private const val LIVE_WITHIN_MS = 15_000L
+
+/**
+ * Older than this and something is probably wrong. Well above the roughly one-a-minute
+ * heartbeat the exchange sends outside market hours, so a quiet Saturday does not raise it.
+ */
+private const val STALE_AFTER_MS = 150_000L
 
 /**
  * PHASE 9 SCREEN: PROJECT_SPEC.md section 20 step 10 — the final combined
@@ -37,9 +58,9 @@ private const val AUTO_REFRESH_INTERVAL_MS = 5_000L
  *
  * Also adds a [ChartDisplayModeToggle] (Both/Price/OI, applied to every
  * chart at once) and an auto-refresh loop — every [AUTO_REFRESH_INTERVAL_MS]
- * this screen re-reads whatever's newest in storage on its own, so "Refresh
- * all charts" becomes an optional manual nudge rather than the only way to
- * see new ticks.
+ * this screen re-reads whatever's newest in storage on its own. There is
+ * deliberately NO refresh button: see [FeedFreshness] for why an age counter
+ * replaced it.
  */
 /**
  * Below this width the single-scroll chain ladder is used; at or above it, the TV's
@@ -119,15 +140,7 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
             }
             is Phase9UiState.Ready -> {
                 item(key = "panic") { PanicAlertCard(panicAlert) }
-                item(key = "refresh") {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Button(onClick = { viewModel.refreshAll() }) { Text("Refresh now") }
-                        Text(
-                            "Auto-refreshing every ${AUTO_REFRESH_INTERVAL_MS / 1000}s while this screen is open.",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
+                item(key = "freshness") { FeedFreshness(ticksByInstrument) }
                 item(key = "levels") { DailyLevelsCard(dailyLevels) }
                 item(key = "dashboard") { DashboardCard(dashboard) }
                 item(key = "mode") {
@@ -177,6 +190,91 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
                 Button(onClick = onContinueToPhase10, modifier = Modifier.fillMaxWidth()) {
                     Text("Continue to Phase 10 — Session History →")
                 }
+            }
+        }
+    }
+}
+
+/**
+ * How old the newest tick on screen is, counting up in place.
+ *
+ * Replaces a "Refresh now" button, and the removal is the point rather than a side effect: an
+ * action the user can take to see current data implies the data on screen might not be
+ * current, which turns every glance into a question. This screen re-reads storage on its own,
+ * so the honest thing to show is not a button but the answer — how old what you are looking
+ * at actually is.
+ *
+ * It also closes a real hole. Phase 9 had NO indication of whether the feed was connected, so
+ * a chart frozen because the WebSocket had dropped looked exactly like a chart of a quiet
+ * strike. The age of the newest tick distinguishes them, and nothing else on this screen did.
+ *
+ * Three bands, not a single threshold, because a single one would cry wolf: outside market
+ * hours the exchange still sends roughly one heartbeat a minute, so "older than 15 seconds"
+ * is perfectly normal on a Saturday and says nothing about the connection. Only a gap longer
+ * than [STALE_AFTER_MS] is worth calling out, and even then it is worded as a likelihood.
+ */
+@Composable
+private fun FeedFreshness(ticksByInstrument: Map<String, List<LiveTickEntity>>) {
+    val newestTickMillis = remember(ticksByInstrument) {
+        ticksByInstrument.values
+            .mapNotNull { list -> list.maxOfOrNull { it.receivedAtMillis } }
+            .maxOrNull()
+    }
+
+    // Counts up on its own once a second. Without this the label would only change when new
+    // ticks arrived — so a dead feed would show a reassuring "3s ago" forever, which is the
+    // exact failure this is here to catch.
+    var nowMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            nowMillis = System.currentTimeMillis()
+            delay(1_000L)
+        }
+    }
+
+    if (newestTickMillis == null) {
+        Text(
+            "No ticks stored for today yet — connect the feed in Phase 4.",
+            style = MaterialTheme.typography.bodySmall,
+            color = NEUTRAL_COLOR
+        )
+        return
+    }
+
+    val ageMillis = (nowMillis - newestTickMillis).coerceAtLeast(0L)
+    val ageSeconds = ageMillis / 1000L
+    val ageText = when {
+        ageSeconds < 60L -> "${ageSeconds}s ago"
+        ageSeconds < 3600L -> "${ageSeconds / 60L}m ago"
+        else -> "%.1fh ago".format(ageSeconds / 3600.0)
+    }
+
+    when {
+        ageMillis <= LIVE_WITHIN_MS -> Text(
+            "● Live — newest tick $ageText",
+            style = MaterialTheme.typography.bodySmall,
+            color = BULLISH_COLOR
+        )
+        ageMillis <= STALE_AFTER_MS -> Text(
+            "Newest tick $ageText",
+            style = MaterialTheme.typography.bodySmall,
+            color = NEUTRAL_COLOR
+        )
+        else -> Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+        ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    "⚠ No new ticks for $ageText",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+                Text(
+                    "Everything below is that old. If the market is open, the feed has most " +
+                        "likely dropped — go back to Phase 4 and reconnect.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
             }
         }
     }

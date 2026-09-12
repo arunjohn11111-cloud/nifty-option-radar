@@ -88,6 +88,11 @@ private fun Sparkline(ticks: List<LiveTickEntity>, modifier: Modifier = Modifier
     }
     val low = ticks.minOf { it.ltp }
     val high = ticks.maxOf { it.ltp }
+    // A price that has not moved is the common case out of hours and in a quiet strike, and it
+    // used to render at y = height: a 2px stroke half of which fell outside the canvas, so the
+    // one thing the row most needed to say — "this is flat" — was the one thing it drew worst.
+    // A flat series is drawn down the middle instead, which reads as flat and stays visible.
+    val flat = high - low <= 0.0
     val span = (high - low).takeIf { it > 0.0 } ?: 1.0
     val firstTime = ticks.minOf { it.receivedAtMillis }
     val lastTime = ticks.maxOf { it.receivedAtMillis }
@@ -97,14 +102,28 @@ private fun Sparkline(ticks: List<LiveTickEntity>, modifier: Modifier = Modifier
         val path = Path()
         ticks.sortedBy { it.receivedAtMillis }.forEachIndexed { index, tick ->
             val x = size.width * (tick.receivedAtMillis - firstTime).toFloat() / timeSpan.toFloat()
-            val y = (size.height * (1.0 - (tick.ltp - low) / span)).toFloat()
+            val y = if (flat) size.height / 2f
+            else (size.height * (1.0 - (tick.ltp - low) / span)).toFloat()
             if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
         drawPath(path, SPARK_COLOR, style = Stroke(width = 2f, cap = StrokeCap.Round))
     }
 }
 
-/** One side of a rung: price, its move, OI and the OI move, plus the sparkline. */
+/**
+ * One side of a rung: price, its move, OI and the OI move, plus the sparkline.
+ *
+ * LAYOUT IS LOAD-BEARING HERE, and the first version got it wrong. Side, price and percent
+ * were laid out on ONE line; at half a phone's width, with the system font scaled up even
+ * slightly, that line had nowhere to go and wrapped mid-number — "CE 337.00+6." on one line
+ * and "5%" on the next, "-12.5" above a stray "%". On every row, twenty-two times.
+ *
+ * So no line here carries more than two short items, and every one of them is [maxLines] = 1.
+ * The header line pairs the side label with the percent move (about seven characters between
+ * them, which fits at any font scale a phone offers); the price gets a line of its own, which
+ * is also the right emphasis, since it is the number a glance is looking for. Nothing here
+ * relies on a measurement that can change under a device setting.
+ */
 @Composable
 private fun RungSide(
     side: String,
@@ -112,39 +131,53 @@ private fun RungSide(
     modifier: Modifier = Modifier
 ) {
     val last = ticks.maxByOrNull { it.receivedAtMillis }
+    val move = percentChange(last?.closePrice, last?.ltp)
     Column(modifier = modifier) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
             Text(
                 side,
                 style = MaterialTheme.typography.labelSmall,
                 color = if (side == "CE") UP_COLOR else DOWN_COLOR,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
             )
-            Text(
-                if (last != null) "  %.2f".format(last.ltp) else "  —",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            val move = percentChange(last?.closePrice, last?.ltp)
             if (move != null) {
                 Text(
-                    "  %+.1f%%".format(move),
+                    "%+.1f%%".format(move),
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (move >= 0) UP_COLOR else DOWN_COLOR
+                    color = if (move >= 0) UP_COLOR else DOWN_COLOR,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
                 )
             }
         }
+        Text(
+            if (last != null) "%.2f".format(last.ltp) else "—",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
         Sparkline(ticks, modifier = Modifier.fillMaxWidth())
         val oi = lastOi(ticks)
         val oiMove = percentChange(firstOi(ticks), oi)
         Text(
-            buildString {
-                append(if (oi != null) "OI ${formatMillions(oi)}" else "OI —")
-                if (oiMove != null) append(" %+.1f%%".format(oiMove))
-            },
+            if (oi != null) formatMillions(oi) else "—",
             style = MaterialTheme.typography.labelSmall,
-            color = if (oiMove != null && oiMove >= 0) UP_COLOR else ROW_MUTED
+            color = ROW_MUTED,
+            maxLines = 1
         )
+        if (oiMove != null) {
+            Text(
+                "%+.1f%%".format(oiMove),
+                style = MaterialTheme.typography.labelSmall,
+                color = if (oiMove >= 0) UP_COLOR else DOWN_COLOR,
+                maxLines = 1
+            )
+        }
     }
 }
 
@@ -289,24 +322,37 @@ fun LazyListScope.strikeLadder(
             )
         }
         item(key = "ladder-atm-pair") {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("CE", style = MaterialTheme.typography.labelSmall, color = UP_COLOR, fontWeight = FontWeight.Bold)
-                    LiveTickChart(
-                        ticks = atmRung.ceKey?.let { ticksByInstrument[it] } ?: emptyList(),
-                        modifier = Modifier.fillMaxWidth(),
-                        displayMode = displayMode,
-                        chartHeight = 120.dp
-                    )
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("PE", style = MaterialTheme.typography.labelSmall, color = DOWN_COLOR, fontWeight = FontWeight.Bold)
-                    LiveTickChart(
-                        ticks = atmRung.peKey?.let { ticksByInstrument[it] } ?: emptyList(),
-                        modifier = Modifier.fillMaxWidth(),
-                        displayMode = displayMode,
-                        chartHeight = 120.dp
-                    )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                // Said once for the pair rather than once per chart. Printed under each chart
+                // it took three wrapped lines twice over, and the two charts it was explaining
+                // were pushed off the screen by their own legend.
+                Text(
+                    "Bars below each chart: buy vs sell quantity (green = buy, red = sell). " +
+                        "Δ and Θ are this contract's live Greeks.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ROW_MUTED
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("CE", style = MaterialTheme.typography.labelSmall, color = UP_COLOR, fontWeight = FontWeight.Bold)
+                        LiveTickChart(
+                            ticks = atmRung.ceKey?.let { ticksByInstrument[it] } ?: emptyList(),
+                            modifier = Modifier.fillMaxWidth(),
+                            displayMode = displayMode,
+                            chartHeight = 120.dp,
+                            compact = true
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("PE", style = MaterialTheme.typography.labelSmall, color = DOWN_COLOR, fontWeight = FontWeight.Bold)
+                        LiveTickChart(
+                            ticks = atmRung.peKey?.let { ticksByInstrument[it] } ?: emptyList(),
+                            modifier = Modifier.fillMaxWidth(),
+                            displayMode = displayMode,
+                            chartHeight = 120.dp,
+                            compact = true
+                        )
+                    }
                 }
             }
         }
@@ -317,16 +363,27 @@ fun LazyListScope.strikeLadder(
     }
 
     item(key = "ladder-header") {
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Text("Call", style = MaterialTheme.typography.labelSmall, color = ROW_MUTED, modifier = Modifier.weight(1f))
+        Column {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Text("Call", style = MaterialTheme.typography.labelSmall, color = ROW_MUTED, modifier = Modifier.weight(1f))
+                Text(
+                    "Strike",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ROW_MUTED,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.width(STRIKE_COLUMN_WIDTH)
+                )
+                Text("Put", style = MaterialTheme.typography.labelSmall, color = ROW_MUTED, modifier = Modifier.weight(1f))
+            }
+            // The rows themselves carry no field labels — at half a phone's width a label costs
+            // more room than the number it names. Saying the order once, here, is what buys the
+            // rows that room.
             Text(
-                "Strike",
+                "Each side, top to bottom: % move since yesterday's close · price · " +
+                    "open interest · OI change",
                 style = MaterialTheme.typography.labelSmall,
-                color = ROW_MUTED,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.width(STRIKE_COLUMN_WIDTH)
+                color = ROW_MUTED
             )
-            Text("Put", style = MaterialTheme.typography.labelSmall, color = ROW_MUTED, modifier = Modifier.weight(1f))
         }
     }
 

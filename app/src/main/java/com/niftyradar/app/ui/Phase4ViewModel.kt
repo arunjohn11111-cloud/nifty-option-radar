@@ -58,6 +58,20 @@ class Phase4ViewModel(application: Application) : AndroidViewModel(application) 
     private val _compacting = MutableStateFlow(false)
     val compacting: StateFlow<Boolean> = _compacting.asStateFlow()
 
+    /**
+     * The measured snapshot rate, and the per-day breakdown behind it. Null until
+     * [refreshStoredTickSummary] runs — same pattern as the two summaries above.
+     *
+     * This is the one reading that has to come from a live market day, and it is worth saying
+     * why it is a screen rather than a calculation: the total tick count was read as a rate
+     * once, and it is not one, because this app's feed only runs while a screen holds it open.
+     * Everything downstream of "how fast do snapshots arrive" — refresh cadence, whether
+     * per-second candles hold information, whether a volume-delta flow proxy has samples, how
+     * many megabytes a recorded day costs — was resting on that bad divisor.
+     */
+    private val _snapshotRate = MutableStateFlow<String?>(null)
+    val snapshotRate: StateFlow<String?> = _snapshotRate.asStateFlow()
+
     private var lockedSession: RadarSession? = null
 
     init {
@@ -147,7 +161,49 @@ class Phase4ViewModel(application: Application) : AndroidViewModel(application) 
             _storedTickSummary.value =
                 "$tickCount tick(s) stored for today across $instrumentCount instrument(s)."
             _storageSummary.value = describe(liveTickStore.storageSummary())
+            _snapshotRate.value = describeRate(
+                rate = liveTickStore.snapshotRate(),
+                perDay = liveTickStore.ticksPerRecordedDay()
+            )
         }
+    }
+
+    /**
+     * Turns the measured rate into the two sentences that are actually decision-relevant: the
+     * rate itself, and what a full session of it would cost on disk.
+     *
+     * The cost line uses the SAME 316-bytes-per-row figure the retention window was sized
+     * from, so the two can never silently disagree — and it is projected from the measured
+     * rate rather than from the bytes already on disk, because what matters is the day this
+     * app is about to record with a live screen held open, not the partial days it has.
+     */
+    private fun describeRate(
+        rate: LiveTickStore.SnapshotRate,
+        perDay: List<com.niftyradar.app.storage.DayTickCount>
+    ): String {
+        val perMinute = rate.perInstrumentPerMinute
+        val head = if (perMinute == null) {
+            "Snapshot rate: no ticks in the last ${rate.windowSeconds}s — nothing to measure. " +
+                "Connect the feed during market hours and check again."
+        } else {
+            val seconds = rate.secondsPerSnapshot
+            val cadence = if (seconds != null && seconds >= 1.0) {
+                "one every %.1fs".format(seconds)
+            } else {
+                "%.1f per second".format(perMinute / 60.0)
+            }
+            val rowsPerSession = perMinute / 60.0 * SESSION_SECONDS * rate.instruments
+            val bytesPerSession = (rowsPerSession * BYTES_PER_TICK).toLong()
+            "Snapshot rate: %.1f per instrument per minute ($cadence), measured over the last "
+                .format(perMinute) +
+                "${rate.windowSeconds}s across ${rate.instruments} instrument(s). " +
+                "A full 6h15m session at this rate is ~${"%,.0f".format(rowsPerSession)} rows, " +
+                "${formatBytes(bytesPerSession)} — so ${LiveTickStore.RETENTION_SESSIONS} days " +
+                "would hold ${formatBytes(bytesPerSession * LiveTickStore.RETENTION_SESSIONS)}."
+        }
+        if (perDay.isEmpty()) return head
+        val breakdown = perDay.take(8).joinToString("  ") { "${it.day}: ${it.ticks}" }
+        return "$head\nPer day — $breakdown"
     }
 
     /**
@@ -176,6 +232,10 @@ class Phase4ViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun formatBytes(bytes: Long): String = when {
+        // A GB branch matters specifically for the projection: the whole reason the retention
+        // window was cut is a worst case in the gigabytes, and "3119.1 MB" is a number a
+        // reader has to stop and divide before it lands.
+        bytes >= 1024L * 1024L * 1024L -> "%.2f GB".format(bytes / (1024.0 * 1024.0 * 1024.0))
         bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
         bytes >= 1024L -> "%.0f KB".format(bytes / 1024.0)
         else -> "$bytes B"
@@ -184,5 +244,16 @@ class Phase4ViewModel(application: Application) : AndroidViewModel(application) 
     override fun onCleared() {
         super.onCleared()
         feedClient.disconnect()
+    }
+
+    private companion object {
+        /** 09:15 to 15:30 IST, in seconds — one NSE equity/F&O session. */
+        const val SESSION_SECONDS = 6 * 3600 + 15 * 60
+
+        /**
+         * Bytes a single stored tick costs, indices and write-ahead log included. Measured,
+         * not assumed: 12.6 MB across 39,843 rows on a real device.
+         */
+        const val BYTES_PER_TICK = 316
     }
 }

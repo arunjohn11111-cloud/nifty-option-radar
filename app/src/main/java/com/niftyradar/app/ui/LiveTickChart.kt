@@ -226,7 +226,8 @@ fun LiveTickChart(
     modifier: Modifier = Modifier,
     displayMode: ChartDisplayMode = ChartDisplayMode.Both,
     chartHeight: Dp = 160.dp,
-    candles: Boolean = false
+    candles: Boolean = false,
+    compact: Boolean = false
 ) {
     if (ticks.size < 2) {
         Box(modifier = modifier.height(chartHeight), contentAlignment = Alignment.Center) {
@@ -534,7 +535,11 @@ fun LiveTickChart(
                     color = PRICE_COLOR
                 )
             }
-            if (showOi) {
+            // The OI range is nine digits wide twice over; next to the price range at half a
+            // phone's width it is the item that forces the row to wrap, and it is also the
+            // least useful of the two at a glance, since the dashed line's SHAPE is what is
+            // being read there, not its endpoints.
+            if (showOi && !compact) {
                 Text(
                     "OI %.0f–%.0f (dashed)".format(minOi, maxOi),
                     style = MaterialTheme.typography.bodySmall,
@@ -565,20 +570,29 @@ fun LiveTickChart(
                     )
                 }
             }
-            Text(
-                "Candles and these averages are 1-minute, aggregated from recorded ticks. The " +
-                    "dashboard's Trend signal reads 15-minute candles from Upstox, so the two " +
-                    "can legitimately disagree — they are different timeframes, not a bug.",
-                style = MaterialTheme.typography.labelSmall,
-                color = AXIS_LABEL_COLOR
-            )
+            if (!compact) {
+                Text(
+                    "Candles and these averages are 1-minute, aggregated from recorded ticks. " +
+                        "The dashboard's Trend signal reads 15-minute candles from Upstox, so " +
+                        "the two can legitimately disagree — they are different timeframes, " +
+                        "not a bug.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = AXIS_LABEL_COLOR
+                )
+            }
         }
 
         // Said out loud rather than left for the reader to misjudge: when the move is smaller
         // than the axis floor, the flatness of the line is the point, not a rendering quirk.
+        //
+        // Two wordings, because the same sentence cannot serve both sizes. Side by side at half
+        // a phone's width — which is exactly where a flat chart is most likely to appear, since
+        // that is the at-the-money pair — the full sentence wrapped to three lines and pushed
+        // the chart it was explaining off the screen. The short form says the same thing.
         if (showPrice && scaleWasFloored) {
             Text(
-                "Moved only %.2f — axis widened to %.2f so this reads as flat, because it is."
+                if (compact) "Flat — moved %.2f".format(dataSpan)
+                else "Moved only %.2f — axis widened to %.2f so this reads as flat, because it is."
                     .format(dataSpan, axisSpan),
                 style = MaterialTheme.typography.labelSmall,
                 color = AXIS_LABEL_COLOR
@@ -587,20 +601,30 @@ fun LiveTickChart(
 
         if (latestGreeks != null) {
             Text(
-                "Δ %.3f  Θ %.2f  Γ %.4f  V %.2f  ρ %.2f".format(
-                    latestGreeks.delta, latestGreeks.theta, latestGreeks.gamma,
-                    latestGreeks.vega, latestGreeks.rho
-                ),
+                if (compact) {
+                    // Delta and theta are the two a glance at the money is actually reading.
+                    // The full set stays one tap away, on the chart the row expands to.
+                    "Δ %.2f  Θ %.1f".format(latestGreeks.delta, latestGreeks.theta)
+                } else {
+                    "Δ %.3f  Θ %.2f  Γ %.4f  V %.2f  ρ %.2f".format(
+                        latestGreeks.delta, latestGreeks.theta, latestGreeks.gamma,
+                        latestGreeks.vega, latestGreeks.rho
+                    )
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = GREEKS_COLOR
             )
         }
 
         if (hasFlow) {
-            Text(
-                "Buy vs sell qty, ~every ${FLOW_BUCKET_MS / 1000}s (green = buy, red = sell)",
-                style = MaterialTheme.typography.labelSmall
-            )
+            // The legend is suppressed in compact mode rather than shortened: two charts side
+            // by side would print it twice, and the caller shows it once above the pair.
+            if (!compact) {
+                Text(
+                    "Buy vs sell qty, ~every ${FLOW_BUCKET_MS / 1000}s (green = buy, red = sell)",
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()

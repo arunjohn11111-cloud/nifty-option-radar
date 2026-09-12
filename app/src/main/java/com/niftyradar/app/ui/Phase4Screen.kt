@@ -28,6 +28,7 @@ fun Phase4Screen(viewModel: Phase4ViewModel, onBack: () -> Unit, onContinueToPha
     val quotes by viewModel.quotes.collectAsState()
     val storedTickSummary by viewModel.storedTickSummary.collectAsState()
     val storageSummary by viewModel.storageSummary.collectAsState()
+    val snapshotRate by viewModel.snapshotRate.collectAsState()
     val compacting by viewModel.compacting.collectAsState()
 
     LaunchedEffect(Unit) {
@@ -103,6 +104,28 @@ fun Phase4Screen(viewModel: Phase4ViewModel, onBack: () -> Unit, onContinueToPha
         // so this number is the first honest answer to "how much of my phone is this using?"
         if (storageSummary != null) {
             Text(storageSummary!!, style = MaterialTheme.typography.bodySmall)
+        }
+
+        // The measured snapshot rate. On its own card because it is the one reading here that
+        // several other decisions are waiting on, and because it is only meaningful when taken
+        // during market hours with the feed connected — a caveat that needs to sit next to the
+        // number, not in a commit message.
+        if (snapshotRate != null) {
+            Card {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("Measured feed rate", style = MaterialTheme.typography.titleSmall)
+                    Text(snapshotRate!!, style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "Only meaningful while the market is open and the feed above is " +
+                            "connected. Outside market hours the exchange still sends about one " +
+                            "heartbeat a minute, which is not the live rate.",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Button(
