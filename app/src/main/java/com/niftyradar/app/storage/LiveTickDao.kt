@@ -81,6 +81,40 @@ interface LiveTickDao {
             "FROM live_ticks GROUP BY sessionDate ORDER BY sessionDate DESC"
     )
     suspend fun ticksPerRecordedDay(): List<DayTickCount>
+
+    /**
+     * The newest tick's arrival time for a day, or null when the day has none.
+     *
+     * One aggregate over an indexed column, and it exists to make a fast refresh loop cheap
+     * instead of merely frequent. The measured feed sends roughly one snapshot per instrument
+     * every fifteen seconds, so a loop running every two seconds finds nothing new on most
+     * passes — and re-reading every instrument's whole day to discover that is the expensive
+     * way to learn it. Asking this first turns those passes into a single scalar read.
+     */
+    @Query("SELECT MAX(receivedAtMillis) FROM live_ticks WHERE sessionDate = :sessionDate")
+    suspend fun latestTickMillis(sessionDate: String): Long?
+
+    /**
+     * How many stored ticks claim to have arrived after [nowMillis] — that is, in the future.
+     *
+     * A diagnostic rather than a feature, and it exists because a device turned up with its
+     * newest tick timestamped about twelve hours ahead of its own clock. The write path stamps
+     * rows with System.currentTimeMillis() and nothing else touches the column, so the code
+     * cannot explain that on its own — which is exactly when a measurement beats a theory.
+     */
+    @Query("SELECT COUNT(*) FROM live_ticks WHERE receivedAtMillis > :nowMillis")
+    suspend fun countTicksAfter(nowMillis: Long): Int
+
+    /** The furthest-future timestamp on disk, or null when none is ahead of [nowMillis]. */
+    @Query("SELECT MAX(receivedAtMillis) FROM live_ticks WHERE receivedAtMillis > :nowMillis")
+    suspend fun maxTickAfter(nowMillis: Long): Long?
+
+    /** Newest and oldest stored timestamps overall, whatever day they claim to belong to. */
+    @Query("SELECT MIN(receivedAtMillis) FROM live_ticks")
+    suspend fun earliestTickMillisOverall(): Long?
+
+    @Query("SELECT MAX(receivedAtMillis) FROM live_ticks")
+    suspend fun latestTickMillisOverall(): Long?
 }
 
 /** One row of [LiveTickDao.ticksPerRecordedDay]. */

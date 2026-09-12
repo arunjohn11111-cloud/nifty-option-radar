@@ -29,6 +29,7 @@ fun Phase4Screen(viewModel: Phase4ViewModel, onBack: () -> Unit, onContinueToPha
     val storedTickSummary by viewModel.storedTickSummary.collectAsState()
     val storageSummary by viewModel.storageSummary.collectAsState()
     val snapshotRate by viewModel.snapshotRate.collectAsState()
+    val clockWarning by viewModel.clockWarning.collectAsState()
     val compacting by viewModel.compacting.collectAsState()
 
     LaunchedEffect(Unit) {
@@ -104,6 +105,32 @@ fun Phase4Screen(viewModel: Phase4ViewModel, onBack: () -> Unit, onContinueToPha
         // so this number is the first honest answer to "how much of my phone is this using?"
         if (storageSummary != null) {
             Text(storageSummary!!, style = MaterialTheme.typography.bodySmall)
+        }
+
+        // Above the rate card on purpose: if the clock was wrong while recording, every rate
+        // and span below it was computed from those same timestamps and is suspect too.
+        if (clockWarning != null) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        "Clock check",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Text(
+                        clockWarning!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
         }
 
         // The measured snapshot rate. On its own card because it is the one reading here that

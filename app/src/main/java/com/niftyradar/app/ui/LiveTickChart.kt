@@ -89,6 +89,13 @@ private const val MIN_SPAN_FRACTION = 0.004
 /** Roughly how many horizontal gridlines to aim for; the real count lands on round numbers. */
 private const val TARGET_GRIDLINES = 4
 
+/**
+ * How far ahead of the device clock a tick's timestamp may sit before it is treated as
+ * impossible. A couple of minutes absorbs an ordinary NTP correction landing mid-session; it
+ * does not absorb the twelve-hour skew that prompted this guard.
+ */
+private const val CLOCK_SKEW_TOLERANCE_MS = 120_000L
+
 /** Width reserved on the right for the price labels, TradingView-style. */
 private val PRICE_GUTTER = 46.dp
 
@@ -232,6 +239,32 @@ fun LiveTickChart(
     if (ticks.size < 2) {
         Box(modifier = modifier.height(chartHeight), contentAlignment = Alignment.Center) {
             Text("Not enough ticks yet to draw a chart (need at least 2).")
+        }
+        return
+    }
+
+    // CLOCK-SKEW GUARD. A tick cannot have arrived later than now, and one that claims to did
+    // real damage before this existed: a series ending twelve hours in the future stretched the
+    // time axis across twelve hours, which compressed an entire real trading day into a few
+    // pixels and left the plot looking empty. Every window in this app is measured in
+    // receivedAtMillis — the EMA spans, the five-minute panic window, the flow buckets, the
+    // minute candles, the parity velocity — so one bad timestamp is not a cosmetic problem.
+    //
+    // Dropped rather than clamped, because a clamped timestamp is a fabrication that would then
+    // be indistinguishable from a real reading. The count is surfaced below, so a skew shows up
+    // as a stated fact instead of a chart that merely looks wrong.
+    val nowMillis = System.currentTimeMillis()
+    val futureTickCount = ticks.count { it.receivedAtMillis > nowMillis + CLOCK_SKEW_TOLERANCE_MS }
+    @Suppress("NAME_SHADOWING")
+    val ticks = if (futureTickCount == 0) ticks
+    else ticks.filter { it.receivedAtMillis <= nowMillis + CLOCK_SKEW_TOLERANCE_MS }
+
+    if (ticks.size < 2) {
+        Box(modifier = modifier.height(chartHeight), contentAlignment = Alignment.Center) {
+            Text(
+                "All $futureTickCount stored tick(s) are timestamped in the future — " +
+                    "nothing left to draw. The device clock was wrong when these were recorded."
+            )
         }
         return
     }
@@ -527,8 +560,21 @@ fun LiveTickChart(
             Text(formatClockIst(maxTime), style = MaterialTheme.typography.labelSmall, color = AXIS_LABEL_COLOR)
         }
 
+        // Stated on the chart itself, not only in a log: ticks were thrown away, and a reader
+        // is entitled to know their chart is drawn on less than what is stored.
+        if (futureTickCount > 0) {
+            Text(
+                "$futureTickCount tick(s) timestamped in the future were left out — " +
+                    "the device clock was wrong when they were recorded.",
+                style = MaterialTheme.typography.labelSmall,
+                color = SELL_COLOR
+            )
+        }
+
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (showPrice) {
+            // Suppressed when the range is a single repeated number, because the flat note
+            // below already says it and "Range 133.60–133.60" says it worse.
+            if (showPrice && !(compact && dataSpan <= 0.0)) {
                 Text(
                     "Range %.2f–%.2f".format(dataLow, dataHigh),
                     style = MaterialTheme.typography.bodySmall,
@@ -658,6 +704,13 @@ fun LiveTickChart(
                         topLeft = Offset(sellLeft, size.height - sellHeight),
                         size = Size(barWidth, sellHeight)
                     )
+
+                    // Bar values are dropped in compact mode. At half a phone's width the
+                    // buy and sell labels of one bucket overlap each other and the next
+                    // bucket's, and overlapping digits are not a smaller number — they are an
+                    // unreadable one. The bars' relative heights still carry the comparison,
+                    // which is all this strip is for at that size.
+                    if (compact) continue
 
                     val buyLabel = textMeasurer.measure(
                         formatQuantityShort(buyQty),

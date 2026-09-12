@@ -23,20 +23,6 @@ private val BULLISH_COLOR = Color(0xFF2E7D32)
 private val BEARISH_COLOR = Color(0xFFC62828)
 private val NEUTRAL_COLOR = Color(0xFF757575)
 
-/**
- * How often the auto-refresh loop below re-reads stored ticks while this screen is open.
- *
- * NOT yet reduced toward one second, and that is a measurement problem rather than a decision
- * not taken. Each pass re-reads every instrument's ENTIRE day from Room, so its cost grows
- * through the session — at one snapshot per instrument per second, by the close that is over
- * half a million rows per pass. Cutting the interval before the queries are windowed would
- * make a late-afternoon screen worse, not more live. The windowed version needs each
- * instrument's day-open baseline fetched separately, or "OI change since open" would quietly
- * become "OI change over the last few minutes" — a signal changing meaning without saying so.
- * See LiveTickStore.snapshotRate: measure the rate first, then size the window.
- */
-private const val AUTO_REFRESH_INTERVAL_MS = 5_000L
-
 /** Newer than this and the feed is unambiguously live. */
 private const val LIVE_WITHIN_MS = 15_000L
 
@@ -45,6 +31,9 @@ private const val LIVE_WITHIN_MS = 15_000L
  * heartbeat the exchange sends outside market hours, so a quiet Saturday does not raise it.
  */
 private const val STALE_AFTER_MS = 150_000L
+
+/** How far ahead of the clock a tick may sit before it is called impossible rather than fresh. */
+private const val FUTURE_TICK_TOLERANCE_MS = 120_000L
 
 /**
  * PHASE 9 SCREEN: PROJECT_SPEC.md section 20 step 10 — the final combined
@@ -57,10 +46,9 @@ private const val STALE_AFTER_MS = 150_000L
  * with much less scrolling.
  *
  * Also adds a [ChartDisplayModeToggle] (Both/Price/OI, applied to every
- * chart at once) and an auto-refresh loop — every [AUTO_REFRESH_INTERVAL_MS]
- * this screen re-reads whatever's newest in storage on its own. There is
- * deliberately NO refresh button: see [FeedFreshness] for why an age counter
- * replaced it.
+ * chart at once). New ticks arrive on their own — the loop lives in
+ * Phase9ViewModel.startLiveRefreshLoop — and there is deliberately NO refresh
+ * button: see [FeedFreshness] for why an age counter replaced it.
  */
 /**
  * Below this width the single-scroll chain ladder is used; at or above it, the TV's
@@ -81,15 +69,12 @@ fun Phase9Screen(viewModel: Phase9ViewModel, onBack: () -> Unit, onContinueToPha
     var ladderSort by remember { mutableStateOf(LadderSort.Ladder) }
     var expandedStrike by remember { mutableStateOf<Double?>(null) }
 
+    // One LaunchedEffect, not two. The refresh loop used to live here and now lives in the
+    // ViewModel, started by load() — because the loop needs to compare the newest tick's
+    // timestamp against the last one it acted on, and that is state which must survive a
+    // recomposition. Left in the composable it would also have been a second, competing loop.
     LaunchedEffect(Unit) {
         viewModel.load()
-    }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(AUTO_REFRESH_INTERVAL_MS)
-            viewModel.refreshAll()
-        }
     }
 
     // ONE scroll for the whole screen, and a LAZY one.
@@ -241,22 +226,38 @@ private fun FeedFreshness(ticksByInstrument: Map<String, List<LiveTickEntity>>) 
         return
     }
 
+    // A future timestamp is not freshness. Before this the age was clamped to zero, so a tick
+    // recorded while the device clock was twelve hours fast reported the feed as live at the
+    // exact moment it was least trustworthy. Named, not hidden.
+    if (newestTickMillis > nowMillis + FUTURE_TICK_TOLERANCE_MS) {
+        Text(
+            "⚠ The newest stored tick is timestamped in the future — the device clock was " +
+                "wrong when it was recorded, so nothing below can be trusted as live.",
+            style = MaterialTheme.typography.bodySmall,
+            color = BEARISH_COLOR
+        )
+        return
+    }
+
     val ageMillis = (nowMillis - newestTickMillis).coerceAtLeast(0L)
     val ageSeconds = ageMillis / 1000L
+    // The bare duration, with no "ago" baked in — the callers below each need it in a
+    // different sentence, and the version that carried its own "ago" produced "No new ticks
+    // for 9m ago".
     val ageText = when {
-        ageSeconds < 60L -> "${ageSeconds}s ago"
-        ageSeconds < 3600L -> "${ageSeconds / 60L}m ago"
-        else -> "%.1fh ago".format(ageSeconds / 3600.0)
+        ageSeconds < 60L -> "${ageSeconds}s"
+        ageSeconds < 3600L -> "${ageSeconds / 60L}m"
+        else -> "%.1fh".format(ageSeconds / 3600.0)
     }
 
     when {
         ageMillis <= LIVE_WITHIN_MS -> Text(
-            "● Live — newest tick $ageText",
+            "● Live — newest tick $ageText ago",
             style = MaterialTheme.typography.bodySmall,
             color = BULLISH_COLOR
         )
         ageMillis <= STALE_AFTER_MS -> Text(
-            "Newest tick $ageText",
+            "Newest tick $ageText ago",
             style = MaterialTheme.typography.bodySmall,
             color = NEUTRAL_COLOR
         )

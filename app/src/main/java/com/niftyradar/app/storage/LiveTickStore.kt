@@ -175,6 +175,40 @@ class LiveTickStore(context: Context) {
     suspend fun ticksPerRecordedDay(): List<DayTickCount> =
         withContext(Dispatchers.IO) { dao.ticksPerRecordedDay() }
 
+    /** See [LiveTickDao.latestTickMillis] — the cheap "has anything changed?" probe. */
+    suspend fun latestTickMillis(sessionDate: String): Long? =
+        withContext(Dispatchers.IO) { dao.latestTickMillis(sessionDate) }
+
+    /**
+     * Everything needed to tell whether stored timestamps and the device clock agree.
+     *
+     * See [LiveTickDao.countTicksAfter]. The point of reporting the clock alongside the data is
+     * that neither number means anything alone: a tick at 23:19 is unremarkable, and a clock
+     * at 11:30 is unremarkable, and the two together are the whole finding.
+     */
+    data class ClockCheck(
+        val nowMillis: Long,
+        val futureTicks: Int,
+        val furthestFutureMillis: Long?,
+        val earliestMillis: Long?,
+        val latestMillis: Long?
+    ) {
+        /** How far ahead the worst offender is, in minutes — null when nothing is ahead. */
+        val skewMinutes: Long?
+            get() = furthestFutureMillis?.let { (it - nowMillis) / 60_000L }
+    }
+
+    suspend fun clockCheck(): ClockCheck = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        ClockCheck(
+            nowMillis = now,
+            futureTicks = dao.countTicksAfter(now),
+            furthestFutureMillis = dao.maxTickAfter(now),
+            earliestMillis = dao.earliestTickMillisOverall(),
+            latestMillis = dao.latestTickMillisOverall()
+        )
+    }
+
     /**
      * Runs the trim at most once per process, so opening a screen twice does not repeat the
      * work. Returns null when this process has already done it.

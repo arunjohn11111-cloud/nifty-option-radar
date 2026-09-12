@@ -72,6 +72,13 @@ class Phase4ViewModel(application: Application) : AndroidViewModel(application) 
     private val _snapshotRate = MutableStateFlow<String?>(null)
     val snapshotRate: StateFlow<String?> = _snapshotRate.asStateFlow()
 
+    /**
+     * Whether stored tick timestamps agree with the device clock. Null when they do — this
+     * reports a problem or says nothing at all.
+     */
+    private val _clockWarning = MutableStateFlow<String?>(null)
+    val clockWarning: StateFlow<String?> = _clockWarning.asStateFlow()
+
     private var lockedSession: RadarSession? = null
 
     init {
@@ -165,7 +172,38 @@ class Phase4ViewModel(application: Application) : AndroidViewModel(application) 
                 rate = liveTickStore.snapshotRate(),
                 perDay = liveTickStore.ticksPerRecordedDay()
             )
+            _clockWarning.value = describeClock(liveTickStore.clockCheck())
         }
+    }
+
+    /**
+     * States the clock finding as facts side by side, or returns null when there is nothing
+     * wrong.
+     *
+     * Deliberately reports the stamps in full — date and time, not just a clock face. The
+     * anomaly that prompted this was invisible in "23:19" and obvious in
+     * "2026-09-12 23:19 while the phone says 2026-09-12 11:30".
+     */
+    private fun describeClock(check: LiveTickStore.ClockCheck): String? {
+        if (check.futureTicks == 0) return null
+        val skew = check.skewMinutes ?: 0L
+        val skewText = if (skew >= 120L) "%.1f hours".format(skew / 60.0) else "$skew minutes"
+        return "⚠ ${check.futureTicks} stored tick(s) are timestamped in the FUTURE.\n" +
+            "Furthest ahead: ${stamp(check.furthestFutureMillis)} — $skewText ahead of this " +
+            "phone's clock, which now reads ${stamp(check.nowMillis)}.\n" +
+            "Oldest stored tick: ${stamp(check.earliestMillis)}. " +
+            "Newest: ${stamp(check.latestMillis)}.\n" +
+            "Ticks are stamped with the phone's own clock at the moment they arrive, so this " +
+            "means the clock was wrong while they were being recorded — most likely automatic " +
+            "date & time is off. Charts leave these ticks out rather than stretch their time " +
+            "axis to reach them."
+    }
+
+    private fun stamp(millis: Long?): String {
+        if (millis == null) return "—"
+        val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        fmt.timeZone = TimeZone.getTimeZone("Asia/Kolkata")
+        return fmt.format(millis)
     }
 
     /**

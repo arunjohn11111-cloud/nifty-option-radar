@@ -259,7 +259,8 @@ object IndicatorEngine {
             return IndicatorSignal(
                 "Gamma Exposure",
                 SignalDirection.NEUTRAL,
-                "Net GEX positive (%.0f) — dealers likely dampening moves, range-bound expected.".format(gex.netGex)
+                "Net GEX positive (${formatGex(gex.netGex)}) — dealers likely dampening " +
+                    "moves, range-bound expected."
             )
         }
 
@@ -272,13 +273,36 @@ object IndicatorEngine {
             else -> SignalDirection.NEUTRAL
         }
         val reason = if (direction == SignalDirection.NEUTRAL || momentumPercent == null) {
-            "Net GEX negative (%.0f) but no clear momentum yet — squeeze risk without a direction.".format(gex.netGex)
+            "Net GEX negative (${formatGex(gex.netGex)}) but no clear momentum yet — " +
+                "squeeze risk without a direction."
         } else {
-            "Net GEX negative (%.0f) + %.2f%% momentum — dealer hedging could accelerate this move.".format(
-                gex.netGex, momentumPercent
-            )
+            // Interpolation and .format() are kept apart on purpose: a formatted value spliced
+            // into a string that is then itself formatted would break the moment that value
+            // ever contained a percent sign.
+            val momentumText = "%.2f%%".format(momentumPercent)
+            "Net GEX negative (${formatGex(gex.netGex)}) + $momentumText momentum — " +
+                "dealer hedging could accelerate this move."
         }
         return IndicatorSignal("Gamma Exposure", direction, reason)
+    }
+
+    /**
+     * Net gamma exposure, short enough to read at a glance.
+     *
+     * It was printed in full, which on a real board meant "-197275292291" — twelve digits a
+     * reader has to count before knowing the magnitude, in a card whose whole purpose is to be
+     * glanced at. Crore and lakh rather than billion, because the number describes an Indian
+     * options board and those are the units it would be discussed in. The sign is kept; only
+     * the precision goes, and none of it was precision anyone was using.
+     */
+    private fun formatGex(netGex: Double): String {
+        val magnitude = kotlin.math.abs(netGex)
+        val sign = if (netGex < 0) "-" else ""
+        return when {
+            magnitude >= 1e7 -> "$sign%.2f cr".format(magnitude / 1e7)
+            magnitude >= 1e5 -> "$sign%.2f lakh".format(magnitude / 1e5)
+            else -> "$sign%.0f".format(magnitude)
+        }
     }
 
     /**

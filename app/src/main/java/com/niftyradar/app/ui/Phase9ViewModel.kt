@@ -99,6 +99,11 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
     private var trendCandles: List<Candle> = emptyList()
     private var trendCandleLoopStarted = false
 
+    // Live-refresh loop state — see startLiveRefreshLoop.
+    private var liveRefreshLoopStarted = false
+    private var lastSeenTickMillis: Long? = null
+    private var pendingForce = true
+
     // Market-wide panic alert (NIFTY spot alone, independent of the dashboard above) — see
     // PanicAlert's doc comment for why this is separate from the 6-indicator dashboard.
     private val _panicAlert = MutableStateFlow<PanicAlertResult?>(null)
@@ -155,6 +160,46 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
         refreshAll(items)
         loadDailyLevels()
         startTrendCandleRefreshLoop()
+        startLiveRefreshLoop()
+    }
+
+    /**
+     * The live loop, moved out of the screen and onto a two-second cadence.
+     *
+     * Two seconds rather than five because the cost was measured rather than feared. A whole
+     * recorded trading day came to 39,613 rows across all 23 instruments — the feed snapshots
+     * roughly once per instrument every fifteen seconds, not once a second — so a full re-read
+     * is tens of thousands of small rows, not the half million a per-second feed would have
+     * meant. The earlier refusal to speed this up was the right call on the evidence available
+     * then; it is the wrong call on the evidence available now.
+     *
+     * It is also the CHEAP kind of fast, which matters more than the interval. At that snapshot
+     * rate most two-second passes have nothing new in them at all, so each pass first asks for
+     * one number — the newest tick's timestamp — and does nothing further when it has not
+     * moved. Out of market hours, or in a lull, the loop costs a single scalar query and
+     * allocates nothing.
+     *
+     * [pendingForce] exists because ticks are not the only input. The pivot levels and the
+     * 15-minute trend candles arrive on their own schedules, and the dashboard cannot be
+     * computed until they do — so without this flag a market that had gone quiet at the exact
+     * moment the pivots landed would leave the dashboard blank until the next tick, which on a
+     * slow strike could be a minute away.
+     */
+    private fun startLiveRefreshLoop() {
+        if (liveRefreshLoopStarted) return
+        liveRefreshLoopStarted = true
+        viewModelScope.launch {
+            while (true) {
+                delay(LIVE_REFRESH_INTERVAL_MS)
+                val state = _uiState.value
+                if (state !is Phase9UiState.Ready) continue
+                val latest = liveTickStore.latestTickMillis(todaySessionDate())
+                if (!pendingForce && latest == lastSeenTickMillis) continue
+                lastSeenTickMillis = latest
+                pendingForce = false
+                refreshAll(state.items)
+            }
+        }
     }
 
     /**
@@ -210,6 +255,9 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
             .associateBy { it.timestampIso }
             .values
             .sortedBy { it.timestampIso }
+        // New candles change the Trend vote even when no tick arrived, so the next loop pass
+        // must not skip itself. See startLiveRefreshLoop.
+        pendingForce = true
     }
 
     /**
@@ -261,12 +309,20 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
                     )
                     val atr14 = AverageTrueRange.wilder(candles, period = 14)
                     _dailyLevels.value = DailyLevelsUiState.Ready(pivots, atr14)
+                    // The dashboard could not be computed at all before this resolved, so the
+                    // next loop pass must run even if the market has gone quiet meanwhile.
+                    pendingForce = true
                 }
             }
         }
     }
 
-    /** Re-read every chart from Room — call this any time to pick up new ticks. */
+    /**
+     * Re-read every chart from Room unconditionally, skipping the change probe.
+     *
+     * Kept for the few callers that genuinely need a forced pass — nothing on the screen calls
+     * it any more, because a refresh button was exactly what the user asked not to have.
+     */
     fun refreshAll() {
         val state = _uiState.value
         if (state is Phase9UiState.Ready) refreshAll(state.items)
@@ -310,5 +366,13 @@ class Phase9ViewModel(application: Application) : AndroidViewModel(application) 
         val result = IndicatorEngine.evaluate(session, ticksByInstrument, spotTicks, pivots, trendCandles)
         _dashboard.value = result
         dashboardNotifier.onDashboardUpdated(result)
+    }
+
+    private companion object {
+        /**
+         * How often the live loop checks for new ticks. See [startLiveRefreshLoop] for why two
+         * seconds is affordable here and why the loop is cheap on passes that find nothing.
+         */
+        const val LIVE_REFRESH_INTERVAL_MS = 2_000L
     }
 }
