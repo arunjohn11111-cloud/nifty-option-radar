@@ -44,15 +44,26 @@ object IndicatorEngine {
         pivots: PivotLevels,
         trendCandles: List<Candle>
     ): DashboardResult {
-        val atmStrike = session.atmStrike
+        // Deliberately NOT session.atmStrike -- see [liveAtm] for what that mistake cost.
+        val atm = liveAtm(session, spotTicks)
+        val atmStrike = atm?.strike ?: session.atmStrike
+        val atmLabel = "%.0f".format(atmStrike)
+        val staleReason = atm?.takeIf { it.tooFar }?.let {
+            ("Spot %.2f has drifted outside the locked strikes %.0f-%.0f. The nearest locked " +
+                "strike %.0f is %.0f pts away, so no locked contract is ATM any more and this " +
+                "reading would be coming from the wrong instrument. Rebuild today's session " +
+                "to re-centre it.")
+                .format(it.spot, it.lowestStrike, it.highestStrike, it.strike, it.distance)
+        }
+
         val ceKey = session.contracts[RadarSession.contractKey(atmStrike, "CE")]?.instrumentKey
         val peKey = session.contracts[RadarSession.contractKey(atmStrike, "PE")]?.instrumentKey
         val ceTicks = ceKey?.let { ticksByInstrument[it] } ?: emptyList()
         val peTicks = peKey?.let { ticksByInstrument[it] } ?: emptyList()
 
         val signals = listOf(
-            oiPriceQuadrantSignal(ceTicks, peTicks),
-            orderFlowSignal(ceTicks, peTicks),
+            oiPriceQuadrantSignal(ceTicks, peTicks, atmLabel, staleReason),
+            orderFlowSignal(ceTicks, peTicks, atmLabel, staleReason),
             pivotPointSignal(spotTicks, pivots),
             trendSignal(trendCandles),
             gammaExposureSignal(session, ticksByInstrument, spotTicks)
@@ -66,10 +77,59 @@ object IndicatorEngine {
         )
     }
 
+    /**
+     * Where the ATM actually is RIGHT NOW, as opposed to where it was when today's session
+     * locked.
+     *
+     * [RadarSession.atmStrike] is frozen at lock time, and using it to choose which contract to
+     * read was a real bug, not a theoretical one. On 2026-09-09 the session locked with spot
+     * near 23,650; by mid-morning spot was 23,510 -- 140 points and nearly three strikes
+     * lower -- and both ATM-based signals were still reading the 23,650 contract. A cheap,
+     * far-OTM call being nibbled at got reported as "Long Buildup", and two of the five votes
+     * on the board were coming from an instrument that had nothing to do with the money.
+     *
+     * So the ATM is recomputed on every refresh from live spot against the strikes that are
+     * actually locked. [tooFar] then says even the NEAREST locked strike is more than one
+     * strike-spacing from spot -- spot has left the band entirely -- and at that point the
+     * honest output is no reading at all rather than a confident one from the wrong strike.
+     *
+     * Strike spacing is measured from the locked strikes themselves rather than assumed to be
+     * 50 points, for the same reason the strike selector never assumes it.
+     */
+    private data class LiveAtm(
+        val strike: Double,
+        val spot: Double,
+        val distance: Double,
+        val tooFar: Boolean,
+        val lowestStrike: Double,
+        val highestStrike: Double
+    )
+
+    private fun liveAtm(session: RadarSession, spotTicks: List<LiveTickEntity>): LiveAtm? {
+        val spot = spotTicks.lastOrNull()?.ltp ?: return null
+        val sorted = session.strikes.sorted()
+        val nearest = sorted.minByOrNull { abs(it - spot) } ?: return null
+        val spacing = sorted.zipWithNext { a, b -> b - a }.filter { it > 0.0 }.minOrNull()
+        val distance = abs(nearest - spot)
+        return LiveAtm(
+            strike = nearest,
+            spot = spot,
+            distance = distance,
+            tooFar = spacing != null && distance > spacing,
+            lowestStrike = sorted.first(),
+            highestStrike = sorted.last()
+        )
+    }
+
     private fun oiPriceQuadrantSignal(
         ceTicks: List<LiveTickEntity>,
-        peTicks: List<LiveTickEntity>
+        peTicks: List<LiveTickEntity>,
+        atmLabel: String,
+        staleReason: String?
     ): IndicatorSignal {
+        if (staleReason != null) {
+            return IndicatorSignal("OI + Price Quadrant", SignalDirection.NEUTRAL, staleReason)
+        }
         val ce = OiPriceQuadrant.classify(ceTicks, WINDOW_MS)
         val pe = OiPriceQuadrant.classify(peTicks, WINDOW_MS)
         if (ce == null && pe == null) {
@@ -80,7 +140,7 @@ object IndicatorEngine {
         val peView = pe?.bullishForOwnPrice?.let { !it }
         val ceLabel = ce?.label?.let(::describeQuadrant) ?: "no read"
         val peLabel = pe?.label?.let(::describeQuadrant) ?: "no read"
-        val reason = "ATM CE: $ceLabel (%.2f%% price, %.2f%% OI). ATM PE: $peLabel (%.2f%% price, %.2f%% OI).".format(
+        val reason = "$atmLabel CE: $ceLabel (%.2f%% price, %.2f%% OI). $atmLabel PE: $peLabel (%.2f%% price, %.2f%% OI).".format(
             ce?.priceChangePercent ?: 0.0, ce?.oiChangePercent ?: 0.0,
             pe?.priceChangePercent ?: 0.0, pe?.oiChangePercent ?: 0.0
         )
@@ -89,8 +149,13 @@ object IndicatorEngine {
 
     private fun orderFlowSignal(
         ceTicks: List<LiveTickEntity>,
-        peTicks: List<LiveTickEntity>
+        peTicks: List<LiveTickEntity>,
+        atmLabel: String,
+        staleReason: String?
     ): IndicatorSignal {
+        if (staleReason != null) {
+            return IndicatorSignal("Order-Flow Imbalance", SignalDirection.NEUTRAL, staleReason)
+        }
         val ce = OrderFlowImbalance.latest(ceTicks)
         val pe = OrderFlowImbalance.latest(peTicks)
         if (ce == null && pe == null) {
@@ -99,7 +164,7 @@ object IndicatorEngine {
 
         val ceView = ce?.bullishForOwnPrice
         val peView = pe?.bullishForOwnPrice?.let { !it }
-        val reason = "ATM CE TBQ/TSQ: %.0f/%.0f. ATM PE TBQ/TSQ: %.0f/%.0f.".format(
+        val reason = "$atmLabel CE TBQ/TSQ: %.0f/%.0f. $atmLabel PE TBQ/TSQ: %.0f/%.0f.".format(
             ce?.totalBuyQuantity ?: 0.0, ce?.totalSellQuantity ?: 0.0,
             pe?.totalBuyQuantity ?: 0.0, pe?.totalSellQuantity ?: 0.0
         )
