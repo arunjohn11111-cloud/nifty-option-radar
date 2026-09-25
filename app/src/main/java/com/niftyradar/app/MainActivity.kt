@@ -18,38 +18,17 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.niftyradar.app.ui.AuthUiState
 import com.niftyradar.app.ui.AuthViewModel
-import com.niftyradar.app.ui.Phase4Screen
-import com.niftyradar.app.ui.Phase4ViewModel
-import com.niftyradar.app.ui.Phase6Screen
-import com.niftyradar.app.ui.Phase6ViewModel
-import com.niftyradar.app.ui.Phase7Screen
-import com.niftyradar.app.ui.Phase7ViewModel
-import com.niftyradar.app.ui.Phase8Screen
-import com.niftyradar.app.ui.Phase8ViewModel
-import com.niftyradar.app.ui.Phase9Screen
-import com.niftyradar.app.ui.Phase9ViewModel
-import com.niftyradar.app.ui.Phase10Screen
-import com.niftyradar.app.ui.Phase10ViewModel
-import com.niftyradar.app.ui.RadarSetupScreen
-import com.niftyradar.app.ui.RadarSetupViewModel
 
 /**
- * Phases 1-10 (the full 11-step spec). Screen switching is a plain in-memory
- * enum, not Navigation-Compose: there are only a handful of screens right
- * now and adding a nav-graph dependency for that would be premature.
+ * Radar v2.0 — foundation for the Scenario Library app.
+ * The old monitor (radar lock, WebSocket feed, charts, history) was removed;
+ * it is preserved in git tag "radar-final".
  */
-private enum class Screen { Auth, RadarSetup, Phase4, Phase6, Phase7, Phase8, Phase9, Phase10 }
+private enum class Screen { Auth, Home }
 
 class MainActivity : ComponentActivity() {
 
     private val authViewModel: AuthViewModel by viewModels()
-    private val radarSetupViewModel: RadarSetupViewModel by viewModels()
-    private val phase4ViewModel: Phase4ViewModel by viewModels()
-    private val phase6ViewModel: Phase6ViewModel by viewModels()
-    private val phase7ViewModel: Phase7ViewModel by viewModels()
-    private val phase8ViewModel: Phase8ViewModel by viewModels()
-    private val phase9ViewModel: Phase9ViewModel by viewModels()
-    private val phase10ViewModel: Phase10ViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,46 +36,12 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     var screen by remember { mutableStateOf(Screen.Auth) }
-
                     when (screen) {
-                        Screen.Auth -> Phase1Screen(
+                        Screen.Auth -> AuthScreen(
                             viewModel = authViewModel,
-                            onContinueToRadarSetup = { screen = Screen.RadarSetup }
+                            onContinue = { screen = Screen.Home }
                         )
-                        Screen.RadarSetup -> RadarSetupScreen(
-                            viewModel = radarSetupViewModel,
-                            onBackToAuth = { screen = Screen.Auth },
-                            onContinueToPhase4 = { screen = Screen.Phase4 }
-                        )
-                        Screen.Phase4 -> Phase4Screen(
-                            viewModel = phase4ViewModel,
-                            onBack = { screen = Screen.RadarSetup },
-                            onContinueToPhase6 = { screen = Screen.Phase6 }
-                        )
-                        Screen.Phase6 -> Phase6Screen(
-                            viewModel = phase6ViewModel,
-                            onBack = { screen = Screen.Phase4 },
-                            onContinueToPhase7 = { screen = Screen.Phase7 }
-                        )
-                        Screen.Phase7 -> Phase7Screen(
-                            viewModel = phase7ViewModel,
-                            onBack = { screen = Screen.Phase6 },
-                            onContinueToPhase8 = { screen = Screen.Phase8 }
-                        )
-                        Screen.Phase8 -> Phase8Screen(
-                            viewModel = phase8ViewModel,
-                            onBack = { screen = Screen.Phase7 },
-                            onContinueToPhase9 = { screen = Screen.Phase9 }
-                        )
-                        Screen.Phase9 -> Phase9Screen(
-                            viewModel = phase9ViewModel,
-                            onBack = { screen = Screen.Phase8 },
-                            onContinueToPhase10 = { screen = Screen.Phase10 }
-                        )
-                        Screen.Phase10 -> Phase10Screen(
-                            viewModel = phase10ViewModel,
-                            onBack = { screen = Screen.Phase9 }
-                        )
+                        Screen.Home -> HomeScreen(onBack = { screen = Screen.Auth })
                     }
                 }
             }
@@ -105,7 +50,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun Phase1Screen(viewModel: AuthViewModel, onContinueToRadarSetup: () -> Unit) {
+fun AuthScreen(viewModel: AuthViewModel, onContinue: () -> Unit) {
     val uiState by viewModel.uiState.collectAsState()
     var tokenInput by remember { mutableStateOf("") }
     var tokenVisible by remember { mutableStateOf(false) }
@@ -117,22 +62,17 @@ fun Phase1Screen(viewModel: AuthViewModel, onContinueToRadarSetup: () -> Unit) {
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Nifty Option Radar", style = MaterialTheme.typography.headlineSmall)
+        Text("Radar", style = MaterialTheme.typography.headlineSmall)
+        Text("Upstox connection", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Phase 1 — Upstox connection check",
-            style = MaterialTheme.typography.titleMedium
-        )
-
-        Text(
-            "Paste your Upstox access token below. It is encrypted on this device " +
-                "(Android Keystore) and is only ever sent to api.upstox.com over HTTPS — " +
-                "never anywhere else, never logged, never hard-coded.",
+            "Paste your Upstox access token. It is encrypted on this device " +
+                "(Android Keystore) and only sent to api.upstox.com over HTTPS.",
             style = MaterialTheme.typography.bodyMedium
         )
 
         if (viewModel.hasStoredToken()) {
             Text(
-                "A token is already saved on this device: ${viewModel.storedTokenRedacted()}",
+                "Saved token: ${viewModel.storedTokenRedacted()}",
                 style = MaterialTheme.typography.bodySmall
             )
         }
@@ -156,32 +96,25 @@ fun Phase1Screen(viewModel: AuthViewModel, onContinueToRadarSetup: () -> Unit) {
             Button(
                 onClick = { viewModel.saveAndVerify(tokenInput) },
                 enabled = uiState !is AuthUiState.Verifying
-            ) {
-                Text("Save & Verify")
-            }
+            ) { Text("Save & Verify") }
 
             OutlinedButton(
                 onClick = { viewModel.verifyStoredToken() },
                 enabled = viewModel.hasStoredToken() && uiState !is AuthUiState.Verifying
-            ) {
-                Text("Re-verify saved token")
-            }
+            ) { Text("Re-verify") }
 
             TextButton(onClick = {
                 viewModel.clearToken()
                 tokenInput = ""
-            }) {
-                Text("Clear")
-            }
+            }) { Text("Clear") }
         }
 
         HorizontalDivider()
-
         StatusCard(uiState)
 
         if (uiState is AuthUiState.Connected) {
-            Button(onClick = onContinueToRadarSetup, modifier = Modifier.fillMaxWidth()) {
-                Text("Continue to Phase 2/3 — Build Today's Radar →")
+            Button(onClick = onContinue, modifier = Modifier.fillMaxWidth()) {
+                Text("Continue →")
             }
         }
     }
@@ -190,40 +123,54 @@ fun Phase1Screen(viewModel: AuthViewModel, onContinueToRadarSetup: () -> Unit) {
 @Composable
 private fun StatusCard(uiState: AuthUiState) {
     when (uiState) {
-        is AuthUiState.NotVerified -> {
+        is AuthUiState.NotVerified ->
             Text("Status: not verified yet.", style = MaterialTheme.typography.bodyMedium)
-        }
 
-        is AuthUiState.Verifying -> {
+        is AuthUiState.Verifying ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(12.dp))
-                Text("Calling Upstox GET /v2/user/profile ...")
+                Text("Checking token with Upstox ...")
             }
-        }
 
-        is AuthUiState.Connected -> {
+        is AuthUiState.Connected ->
             Card {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("✅ CONNECTED", style = MaterialTheme.typography.titleMedium)
                     Text("User: ${uiState.userName} (${uiState.userId})")
                     Text("Broker: ${uiState.broker}")
-                    Text("Exchanges: ${uiState.exchanges.joinToString(", ")}")
-                    Text(
-                        "Token verified — continue below to build today's radar.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
                 }
             }
-        }
 
-        is AuthUiState.Failed -> {
+        is AuthUiState.Failed ->
             Card {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("❌ FAILED", style = MaterialTheme.typography.titleMedium)
                     Text(uiState.message)
                 }
             }
+    }
+}
+
+@Composable
+fun HomeScreen(onBack: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("Radar", style = MaterialTheme.typography.headlineSmall)
+        Text("Scenario Library — foundation v2.0", style = MaterialTheme.typography.titleMedium)
+        Card {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("✅ Old monitor code removed (saved in git tag radar-final)")
+                Text("✅ Upstox token login kept")
+                Text("Next: move log — every move, all scales, pre / current / after")
+                Text("Then: scenario library, event calendar, global cues, money flow")
+            }
         }
+        OutlinedButton(onClick = onBack) { Text("← Token screen") }
     }
 }
